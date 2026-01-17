@@ -179,30 +179,31 @@ export async function statusCommand(
   if (options.watch) {
     // Watch mode: poll every 1 second
     const displayAndWait = async () => {
-      // Clear console
-      console.clear()
+      while (true) {
+        // Clear console
+        console.clear()
 
-      // Re-read and display
-      const seq = await readSequence(basePath)
-      const map = await readMprocsMap(basePath)
+        // Re-read and display
+        const seq = await readSequence(basePath)
+        const map = await readMprocsMap(basePath)
 
-      const currentStatus: SequenceStatus = {
-        name: seq.name,
-        version: seq.version,
-        steps: seq.steps.map(s => buildStepStatus(s, map)),
-        gates: seq.gates.map(g => buildGateStatus(g)),
-        summary: buildSummary(seq),
+        const currentStatus: SequenceStatus = {
+          name: seq.name,
+          version: seq.version,
+          steps: seq.steps.map(s => buildStepStatus(s, map)),
+          gates: seq.gates.map(g => buildGateStatus(g)),
+          summary: buildSummary(seq),
+        }
+
+        if (options.json) {
+          console.log(JSON.stringify(currentStatus, null, 2))
+        } else {
+          displayStatus(currentStatus)
+          console.log('Watching for changes... (Ctrl+C to exit)')
+        }
+
+        await Bun.sleep(1000)
       }
-
-      if (options.json) {
-        console.log(JSON.stringify(currentStatus, null, 2))
-      } else {
-        displayStatus(currentStatus)
-        console.log('Watching for changes... (Ctrl+C to exit)')
-      }
-
-      await Bun.sleep(1000)
-      displayAndWait()
     }
 
     await displayAndWait()

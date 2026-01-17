@@ -14,7 +14,7 @@ export type MprocsCommand =
   | { c: 'send-key'; key: string }
   | { c: 'add-proc'; name: string; cmd: string[] }
   | { c: 'remove-proc'; id: string }
-  | { c: 'batch'; cmds: MprocsCommand[] }
+  | { c: 'batch'; ops: MprocsCommand[] }
 
 // Result type for command execution
 export interface MprocsResult {
@@ -41,7 +41,12 @@ export class MprocsClient {
    */
   async sendCommand(command: MprocsCommand): Promise<MprocsResult> {
     // Use proper YAML library for serialization
-    const yaml = YAML.stringify(command).trim()
+    const payload =
+      command.c === 'batch' && 'ops' in command
+        ? { ...command, cmds: command.ops }
+        : command
+
+    const yaml = YAML.stringify(payload).trim()
 
     try {
       const result = await $`${this.mprocsPath} --ctl ${yaml} --server ${this.serverAddress}`.quiet()
@@ -68,7 +73,13 @@ export class MprocsClient {
    */
   async startProcess(index?: number): Promise<MprocsResult> {
     if (index !== undefined) {
-      await this.sendCommand({ c: 'select-proc', index })
+      return this.sendCommand({
+        c: 'batch',
+        ops: [
+          { c: 'select-proc', index },
+          { c: 'start-proc' },
+        ],
+      })
     }
     return this.sendCommand({ c: 'start-proc' })
   }
@@ -78,7 +89,13 @@ export class MprocsClient {
    */
   async stopProcess(index?: number): Promise<MprocsResult> {
     if (index !== undefined) {
-      await this.sendCommand({ c: 'select-proc', index })
+      return this.sendCommand({
+        c: 'batch',
+        ops: [
+          { c: 'select-proc', index },
+          { c: 'term-proc' },
+        ],
+      })
     }
     return this.sendCommand({ c: 'term-proc' })
   }
@@ -88,7 +105,13 @@ export class MprocsClient {
    */
   async restartProcess(index?: number): Promise<MprocsResult> {
     if (index !== undefined) {
-      await this.sendCommand({ c: 'select-proc', index })
+      return this.sendCommand({
+        c: 'batch',
+        ops: [
+          { c: 'select-proc', index },
+          { c: 'restart-proc' },
+        ],
+      })
     }
     return this.sendCommand({ c: 'restart-proc' })
   }
@@ -104,7 +127,7 @@ export class MprocsClient {
    * Send multiple commands in a batch
    */
   async batch(commands: MprocsCommand[]): Promise<MprocsResult> {
-    return this.sendCommand({ c: 'batch', cmds: commands })
+    return this.sendCommand({ c: 'batch', ops: commands })
   }
 
   /**

@@ -110,7 +110,14 @@ async function executeSingleStep(
     }
   } catch (error) {
     step.status = 'FAILED'
-    await writeSequence(basePath, sequence)
+    try {
+      await writeSequence(basePath, sequence)
+    } catch (writeError) {
+      console.error(
+        `Failed to persist failed step '${stepId}' for run '${runId}':`,
+        writeError
+      )
+    }
 
     return {
       success: false,

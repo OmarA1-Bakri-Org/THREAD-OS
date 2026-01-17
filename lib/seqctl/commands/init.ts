@@ -56,7 +56,7 @@ export async function initCommand(
   // Create default sequence.yaml
   const defaultSequence: Sequence = {
     version: '1.0',
-    name: '',
+    name: 'New Sequence',
     steps: [],
     gates: [],
   }

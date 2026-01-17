@@ -48,6 +48,8 @@ export async function runStep(config: RunnerConfig): Promise<RunResult> {
   const startTime = new Date()
   let stdout = ''
   let stderr = ''
+  let graceTimer: NodeJS.Timeout | undefined
+  let timedOut = false
 
   return new Promise((resolve, reject) => {
     const proc = spawn(command, args, {
@@ -58,15 +60,15 @@ export async function runStep(config: RunnerConfig): Promise<RunResult> {
 
     // Set up timeout
     const timeoutId = setTimeout(() => {
+      timedOut = true
       proc.kill('SIGTERM')
       // Give it a moment to terminate gracefully
-      setTimeout(() => {
+      graceTimer = setTimeout(() => {
         if (!proc.killed) {
           proc.kill('SIGKILL')
         }
       }, 5000)
 
-      const endTime = new Date()
       reject(new ProcessTimeoutError(stepId, timeout))
     }, timeout)
 
@@ -80,6 +82,10 @@ export async function runStep(config: RunnerConfig): Promise<RunResult> {
 
     proc.on('close', (code) => {
       clearTimeout(timeoutId)
+      if (graceTimer) {
+        clearTimeout(graceTimer)
+      }
+      if (timedOut) return
       const endTime = new Date()
       const duration = endTime.getTime() - startTime.getTime()
 
@@ -107,6 +113,10 @@ export async function runStep(config: RunnerConfig): Promise<RunResult> {
 
     proc.on('error', (error) => {
       clearTimeout(timeoutId)
+      if (graceTimer) {
+        clearTimeout(graceTimer)
+      }
+      if (timedOut) return
       const endTime = new Date()
       const duration = endTime.getTime() - startTime.getTime()
 

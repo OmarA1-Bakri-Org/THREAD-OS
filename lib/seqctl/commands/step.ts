@@ -128,7 +128,12 @@ async function editStep(
 
   const stepIndex = sequence.steps.findIndex(s => s.id === stepId)
   if (stepIndex === -1) {
-    throw new StepNotFoundError(stepId)
+    return {
+      success: false,
+      action: 'edit',
+      stepId,
+      error: new StepNotFoundError(stepId).message,
+    }
   }
 
   const step = sequence.steps[stepIndex]
@@ -190,7 +195,12 @@ async function removeStep(
 
   const stepIndex = sequence.steps.findIndex(s => s.id === stepId)
   if (stepIndex === -1) {
-    throw new StepNotFoundError(stepId)
+    return {
+      success: false,
+      action: 'rm',
+      stepId,
+      error: new StepNotFoundError(stepId).message,
+    }
   }
 
   // Check if any other steps depend on this one
@@ -235,7 +245,12 @@ async function cloneStep(
 
   const sourceStep = sequence.steps.find(s => s.id === sourceId)
   if (!sourceStep) {
-    throw new StepNotFoundError(sourceId)
+    return {
+      success: false,
+      action: 'clone',
+      stepId: newId,
+      error: new StepNotFoundError(sourceId).message,
+    }
   }
 
   // Check if new ID already exists
@@ -257,7 +272,30 @@ async function cloneStep(
     status: 'READY',
   }
 
-  sequence.steps.push(clonedStep)
+  const validation = StepSchema.safeParse(clonedStep)
+  if (!validation.success) {
+    return {
+      success: false,
+      action: 'clone',
+      stepId: newId,
+      error: validation.error.issues.map(e => e.message).join(', '),
+    }
+  }
+
+  const updatedSteps = [...sequence.steps, validation.data]
+
+  try {
+    validateDAG({ ...sequence, steps: updatedSteps })
+  } catch (error) {
+    return {
+      success: false,
+      action: 'clone',
+      stepId: newId,
+      error: error instanceof Error ? error.message : 'DAG validation failed',
+    }
+  }
+
+  sequence.steps = updatedSteps
   await writeSequence(basePath, sequence)
 
   // Create the prompt file for the clone
