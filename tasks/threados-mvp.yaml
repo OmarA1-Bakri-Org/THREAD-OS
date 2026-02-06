@@ -1,0 +1,593 @@
+harness:
+  metadata:
+    name: threados-mvp
+    description: "ThreadOS MVP - Thread-Based Engineering Runtime (M0-M2)"
+    version: "1.0.0"
+
+  global_config:
+    max_iterations_per_task: 25
+    retry_policy:
+      max_retries: 2
+      backoff_strategy: exponential
+      base_delay_seconds: 30
+    context_inheritance:
+      git_state: true
+      file_changes: true
+      outputs: true
+
+  tasks:
+    # ==========================================================================
+    # M0: Repository Scaffolding
+    # ==========================================================================
+
+    - id: m0-errors
+      name: "Create custom error types"
+      phase: implementation
+
+      objective: |
+        Create lib/errors.ts with ThreadOS error classes:
+        - ThreadOSError (base class with code property)
+        - MprocsConnectionError
+        - SequenceValidationError
+        - StepNotFoundError
+        - CircularDependencyError
+        - ProcessTimeoutError
+
+        Reference: plans/threados-mvp.md lines 470-515
+
+      constraints:
+        must_use:
+          - "Zod for error message extraction"
+          - "Error code property for programmatic handling"
+        scope: "Only create error types - no business logic"
+
+      success_criteria:
+        required_files:
+          - "lib/errors.ts"
+        required_changes:
+          - "class ThreadOSError extends Error"
+          - "class CircularDependencyError"
+
+      completion_detection:
+        method: hybrid
+        promise_text: "M0_ERRORS_COMPLETE"
+        validation_command: "bunx tsc --noEmit lib/errors.ts"
+
+    - id: m0-atomic-fs
+      name: "Create atomic file operations"
+      phase: implementation
+
+      objective: |
+        Create lib/fs/atomic.ts with writeFileAtomic function:
+        - Write to temp file with UUID name
+        - Rename to target (atomic on most filesystems)
+        - Clean up temp file on failure
+        - Create parent directories if needed
+
+        Reference: plans/threados-mvp.md lines 519-547
+
+      constraints:
+        must_use:
+          - "Node.js fs/promises"
+          - "crypto.randomUUID for temp file names"
+        must_not_use:
+          - "Synchronous file operations"
+
+      success_criteria:
+        required_files:
+          - "lib/fs/atomic.ts"
+        required_changes:
+          - "async function writeFileAtomic"
+
+      completion_detection:
+        method: hybrid
+        promise_text: "M0_ATOMIC_FS_COMPLETE"
+        validation_command: "bunx tsc --noEmit lib/fs/atomic.ts"
+
+    - id: m0-schema
+      name: "Define sequence schema with Zod"
+      phase: implementation
+      depends_on: [m0-errors]
+
+      objective: |
+        Create lib/sequence/schema.ts with Zod schemas:
+        - StepStatusSchema enum (READY, RUNNING, NEEDS_REVIEW, DONE, FAILED, BLOCKED)
+        - StepTypeSchema enum (base, p, c, f, b, l)
+        - ModelTypeSchema enum (claude-code, codex, gemini)
+        - StepSchema object with validation messages
+        - GateSchema object
+        - SequenceSchema object
+
+        Use Schema suffix convention to avoid type name collision.
+        Reference: plans/threados-mvp.md lines 182-240
+
+      constraints:
+        must_use:
+          - "Zod for schema definition"
+          - "Schema suffix naming convention"
+          - "Descriptive validation error messages"
+        must_not_use:
+          - "Type-only definitions without runtime validation"
+
+      success_criteria:
+        required_files:
+          - "lib/sequence/schema.ts"
+        required_changes:
+          - "export const StepSchema"
+          - "export const SequenceSchema"
+          - "export type Step = z.infer"
+
+      completion_detection:
+        method: hybrid
+        promise_text: "M0_SCHEMA_COMPLETE"
+        validation_command: "bunx tsc --noEmit lib/sequence/schema.ts"
+
+    - id: m0-parser
+      name: "Create sequence parser"
+      phase: implementation
+      depends_on: [m0-schema, m0-atomic-fs]
+
+      objective: |
+        Create lib/sequence/parser.ts with:
+        - readSequence(basePath): Read and validate sequence.yaml
+        - writeSequence(basePath, sequence): Validate and write atomically
+
+        Use YAML library for parsing/serialization.
+        Reference: plans/threados-mvp.md lines 549-589
+
+      constraints:
+        must_use:
+          - "yaml library for YAML parsing"
+          - "Zod schemas for validation"
+          - "writeFileAtomic for writes"
+
+      hints:
+        relevant_files:
+          - "lib/sequence/schema.ts"
+          - "lib/fs/atomic.ts"
+
+      success_criteria:
+        required_files:
+          - "lib/sequence/parser.ts"
+        required_changes:
+          - "async function readSequence"
+          - "async function writeSequence"
+
+      completion_detection:
+        method: hybrid
+        promise_text: "M0_PARSER_COMPLETE"
+        validation_command: "bunx tsc --noEmit lib/sequence/parser.ts"
+
+    - id: m0-dag
+      name: "Create DAG validation"
+      phase: implementation
+      depends_on: [m0-schema, m0-errors]
+
+      objective: |
+        Create lib/sequence/dag.ts with:
+        - validateDAG(sequence): Detect circular dependencies using DFS
+        - topologicalSort(sequence): Kahn's algorithm for execution order
+
+        Reference: plans/threados-mvp.md lines 591-685
+
+      constraints:
+        must_use:
+          - "CircularDependencyError for cycle detection"
+          - "DFS with recursion stack for cycle detection"
+          - "Kahn's algorithm for topological sort"
+
+      success_criteria:
+        required_files:
+          - "lib/sequence/dag.ts"
+        required_changes:
+          - "function validateDAG"
+          - "function topologicalSort"
+
+      completion_detection:
+        method: hybrid
+        promise_text: "M0_DAG_COMPLETE"
+        validation_command: "bunx tsc --noEmit lib/sequence/dag.ts"
+
+    - id: m0-directory-structure
+      name: "Create .threados directory structure"
+      phase: implementation
+
+      objective: |
+        Create the following directory structure:
+        - .threados/
+        - .threados/prompts/
+        - .threados/runs/
+        - .threados/state/
+        - .threados/sequence.yaml (empty template with version and name)
+
+        Add .threados/runs/ and .threados/state/ to .gitignore
+
+      success_criteria:
+        required_files:
+          - ".threados/sequence.yaml"
+
+      completion_detection:
+        method: promise
+        promise_text: "M0_DIRECTORY_COMPLETE"
+
+    - id: m0-seqctl-init
+      name: "Create seqctl init command"
+      phase: implementation
+      depends_on: [m0-schema, m0-parser]
+
+      objective: |
+        Create lib/seqctl/commands/init.ts:
+        - Creates .threados/ directory structure if not exists
+        - Creates default sequence.yaml with empty steps/gates
+        - Outputs JSON success response
+
+        Create lib/seqctl/index.ts CLI entry point with:
+        - parseArgs for --json, --help, --watch flags
+        - Command router for init, step, run, status
+        - Proper error formatting for Zod errors
+
+        Reference: plans/threados-mvp.md lines 359-468
+
+      constraints:
+        must_use:
+          - "util.parseArgs for CLI parsing"
+          - "JSON output for --json flag"
+
+      hints:
+        relevant_files:
+          - "lib/sequence/parser.ts"
+          - "lib/sequence/schema.ts"
+
+      success_criteria:
+        required_files:
+          - "lib/seqctl/index.ts"
+          - "lib/seqctl/commands/init.ts"
+        required_changes:
+          - "async function initCommand"
+
+      completion_detection:
+        method: hybrid
+        promise_text: "M0_SEQCTL_INIT_COMPLETE"
+        validation_command: "bunx tsc --noEmit lib/seqctl/index.ts"
+
+    - id: m0-mprocs-binary
+      name: "Add mprocs binary setup"
+      phase: implementation
+
+      objective: |
+        Create vendor/mprocs/windows/ directory structure.
+        Create a README.md documenting how to obtain mprocs.exe v0.7.2 for Windows.
+        Add vendor/ to .gitignore (binary should not be committed).
+
+      success_criteria:
+        required_files:
+          - "vendor/mprocs/windows/README.md"
+
+      completion_detection:
+        method: promise
+        promise_text: "M0_MPROCS_BINARY_COMPLETE"
+
+    # ==========================================================================
+    # M1: mprocs Runtime Controller
+    # ==========================================================================
+
+    - id: m1-mprocs-client
+      name: "Create MprocsClient class"
+      phase: implementation
+      depends_on: [m0-mprocs-binary, m0-errors]
+
+      objective: |
+        Create lib/mprocs/client.ts with:
+        - MprocsCommand discriminated union type
+        - MprocsResult interface (success, exitCode, stderr)
+        - MprocsClient class with sendCommand method
+        - Use YAML.stringify for command serialization
+        - Proper error handling with try/catch
+
+        Reference: plans/threados-mvp.md lines 244-357
+
+      constraints:
+        must_use:
+          - "yaml library for YAML serialization"
+          - "Bun shell ($) for command execution"
+          - "Discriminated union for type-safe commands"
+
+      success_criteria:
+        required_files:
+          - "lib/mprocs/client.ts"
+        required_changes:
+          - "type MprocsCommand"
+          - "class MprocsClient"
+          - "async sendCommand"
+
+      completion_detection:
+        method: hybrid
+        promise_text: "M1_MPROCS_CLIENT_COMPLETE"
+        validation_command: "bunx tsc --noEmit lib/mprocs/client.ts"
+
+    - id: m1-lifecycle-methods
+      name: "Implement process lifecycle methods"
+      phase: implementation
+      depends_on: [m1-mprocs-client]
+
+      objective: |
+        Add to MprocsClient in lib/mprocs/client.ts:
+        - startProcess(index?): Start a process
+        - stopProcess(index?): Terminate a process
+        - restartProcess(index?): Restart a process
+        - addProcess(name, cmd): Add new process dynamically
+        - batch(commands): Send multiple commands
+
+        Reference: plans/threados-mvp.md lines 306-331
+
+      hints:
+        relevant_files:
+          - "lib/mprocs/client.ts"
+
+      success_criteria:
+        required_changes:
+          - "async startProcess"
+          - "async stopProcess"
+          - "async addProcess"
+
+      completion_detection:
+        method: hybrid
+        promise_text: "M1_LIFECYCLE_COMPLETE"
+        validation_command: "bunx tsc --noEmit lib/mprocs/client.ts"
+
+    - id: m1-health-checks
+      name: "Add health check methods"
+      phase: implementation
+      depends_on: [m1-mprocs-client]
+
+      objective: |
+        Add to MprocsClient in lib/mprocs/client.ts:
+        - isServerRunning(): Check if mprocs server responds
+        - waitForServer(timeoutMs): Poll until server is ready
+
+        Reference: plans/threados-mvp.md lines 336-356
+
+      hints:
+        relevant_files:
+          - "lib/mprocs/client.ts"
+
+      success_criteria:
+        required_changes:
+          - "async isServerRunning"
+          - "async waitForServer"
+
+      completion_detection:
+        method: hybrid
+        promise_text: "M1_HEALTH_CHECKS_COMPLETE"
+        validation_command: "bunx tsc --noEmit lib/mprocs/client.ts"
+
+    - id: m1-mprocs-map
+      name: "Create process-to-step ID mapping"
+      phase: implementation
+      depends_on: [m1-mprocs-client, m0-atomic-fs]
+
+      objective: |
+        Create lib/mprocs/state.ts with:
+        - MprocsMap type (stepId -> processIndex mapping)
+        - readMprocsMap(basePath): Load from .threados/state/mprocs-map.json
+        - writeMprocsMap(basePath, map): Save atomically
+        - updateStepProcess(basePath, stepId, processIndex): Update single mapping
+
+      constraints:
+        must_use:
+          - "writeFileAtomic for writes"
+          - "JSON for serialization"
+
+      success_criteria:
+        required_files:
+          - "lib/mprocs/state.ts"
+        required_changes:
+          - "type MprocsMap"
+          - "async function readMprocsMap"
+
+      completion_detection:
+        method: hybrid
+        promise_text: "M1_MPROCS_MAP_COMPLETE"
+        validation_command: "bunx tsc --noEmit lib/mprocs/state.ts"
+
+    - id: m1-mprocs-config
+      name: "Create mprocs.yaml generation"
+      phase: implementation
+      depends_on: [m0-schema]
+
+      objective: |
+        Create lib/mprocs/config.ts with:
+        - generateMprocsConfig(sequence): Generate mprocs.yaml from sequence
+        - Include server address (127.0.0.1:4050)
+        - Use cmd arrays for Windows compatibility
+
+      constraints:
+        must_use:
+          - "yaml library for YAML generation"
+          - "cmd arrays instead of shell strings"
+
+      success_criteria:
+        required_files:
+          - "lib/mprocs/config.ts"
+        required_changes:
+          - "function generateMprocsConfig"
+
+      completion_detection:
+        method: hybrid
+        promise_text: "M1_MPROCS_CONFIG_COMPLETE"
+        validation_command: "bunx tsc --noEmit lib/mprocs/config.ts"
+
+    # ==========================================================================
+    # M2: Runner Wrappers + Artifacts
+    # ==========================================================================
+
+    - id: m2-runner-wrapper
+      name: "Create standardized runner wrapper"
+      phase: implementation
+      depends_on: [m1-mprocs-client, m0-errors]
+
+      objective: |
+        Create lib/runner/wrapper.ts with:
+        - RunnerConfig interface (stepId, runId, command, cwd, timeout)
+        - runStep(config): Execute command with stdout/stderr capture
+        - Handle process timeout (default 30 minutes)
+        - Return RunResult with exitCode, duration, status
+
+      constraints:
+        must_use:
+          - "ProcessTimeoutError for timeout handling"
+
+      success_criteria:
+        required_files:
+          - "lib/runner/wrapper.ts"
+        required_changes:
+          - "interface RunnerConfig"
+          - "async function runStep"
+
+      completion_detection:
+        method: hybrid
+        promise_text: "M2_RUNNER_WRAPPER_COMPLETE"
+        validation_command: "bunx tsc --noEmit lib/runner/wrapper.ts"
+
+    - id: m2-artifact-collection
+      name: "Implement artifact collection"
+      phase: implementation
+      depends_on: [m0-atomic-fs]
+
+      objective: |
+        Create lib/runner/artifacts.ts with:
+        - createRunDirectory(basePath, runId, stepId): Create runs/<runId>/<stepId>/
+        - writeStdout(path, content): Write stdout.log
+        - writeStderr(path, content): Write stderr.log
+        - writeStatus(path, status): Write status.json with startTime, endTime, exitCode
+
+        Use atomic writes for status.json
+
+      constraints:
+        must_use:
+          - "writeFileAtomic for status.json"
+
+      success_criteria:
+        required_files:
+          - "lib/runner/artifacts.ts"
+        required_changes:
+          - "async function createRunDirectory"
+          - "async function writeStatus"
+
+      completion_detection:
+        method: hybrid
+        promise_text: "M2_ARTIFACTS_COMPLETE"
+        validation_command: "bunx tsc --noEmit lib/runner/artifacts.ts"
+
+    - id: m2-prompt-management
+      name: "Add prompt file management"
+      phase: implementation
+      depends_on: [m0-directory-structure]
+
+      objective: |
+        Create lib/prompts/manager.ts with:
+        - readPrompt(basePath, stepId): Read .threados/prompts/<stepId>.md
+        - writePrompt(basePath, stepId, content): Write prompt file
+        - listPrompts(basePath): List all prompt files
+        - validatePromptExists(basePath, stepId): Check prompt file exists
+
+      success_criteria:
+        required_files:
+          - "lib/prompts/manager.ts"
+        required_changes:
+          - "async function readPrompt"
+          - "async function writePrompt"
+
+      completion_detection:
+        method: hybrid
+        promise_text: "M2_PROMPTS_COMPLETE"
+        validation_command: "bunx tsc --noEmit lib/prompts/manager.ts"
+
+    - id: m2-seqctl-run
+      name: "Create seqctl run command"
+      phase: implementation
+      depends_on: [m1-mprocs-client, m2-runner-wrapper, m2-artifact-collection, m0-dag]
+
+      objective: |
+        Create lib/seqctl/commands/run.ts with subcommands:
+        - run step <stepId>: Execute single step
+        - run runnable: Execute all steps in READY state with satisfied deps
+
+        Integrate with:
+        - MprocsClient for process control
+        - Artifact collection for logs
+        - DAG validation before execution
+
+      hints:
+        relevant_files:
+          - "lib/mprocs/client.ts"
+          - "lib/runner/artifacts.ts"
+          - "lib/sequence/dag.ts"
+
+      success_criteria:
+        required_files:
+          - "lib/seqctl/commands/run.ts"
+        required_changes:
+          - "async function runCommand"
+
+      completion_detection:
+        method: hybrid
+        promise_text: "M2_SEQCTL_RUN_COMPLETE"
+        validation_command: "bunx tsc --noEmit lib/seqctl/commands/run.ts"
+
+    - id: m2-seqctl-status
+      name: "Create seqctl status command"
+      phase: implementation
+      depends_on: [m0-parser, m1-mprocs-map]
+
+      objective: |
+        Create lib/seqctl/commands/status.ts with:
+        - status: Show current sequence state
+        - status --watch: Watch for changes (poll every 1s)
+        - JSON output with step statuses and process info
+
+      hints:
+        relevant_files:
+          - "lib/sequence/parser.ts"
+          - "lib/mprocs/state.ts"
+
+      success_criteria:
+        required_files:
+          - "lib/seqctl/commands/status.ts"
+        required_changes:
+          - "async function statusCommand"
+
+      completion_detection:
+        method: hybrid
+        promise_text: "M2_SEQCTL_STATUS_COMPLETE"
+        validation_command: "bunx tsc --noEmit lib/seqctl/commands/status.ts"
+
+    - id: m2-seqctl-step
+      name: "Create seqctl step command"
+      phase: implementation
+      depends_on: [m0-schema, m0-parser, m0-dag]
+
+      objective: |
+        Create lib/seqctl/commands/step.ts with subcommands:
+        - step add <id> --name --type --model --prompt: Add new step
+        - step edit <id> [--name] [--status]: Edit step
+        - step rm <id>: Remove step
+        - step clone <id> <newId>: Clone step with new ID
+
+        Validate step schema before write.
+
+      hints:
+        relevant_files:
+          - "lib/sequence/schema.ts"
+          - "lib/sequence/parser.ts"
+
+      success_criteria:
+        required_files:
+          - "lib/seqctl/commands/step.ts"
+        required_changes:
+          - "async function stepCommand"
+
+      completion_detection:
+        method: hybrid
+        promise_text: "M2_SEQCTL_STEP_COMPLETE"
+        validation_command: "bunx tsc --noEmit lib/seqctl/commands/step.ts"
