@@ -5,6 +5,13 @@ import { initCommand } from './commands/init'
 import { runCommand } from './commands/run'
 import { statusCommand } from './commands/status'
 import { stepCommand } from './commands/step'
+import { depCommand } from './commands/dep'
+import { groupCommand } from './commands/group'
+import { fusionCommand } from './commands/fusion'
+import { gateCommand } from './commands/gate'
+import { controlCommand } from './commands/control'
+import { mprocsCommand } from './commands/mprocs'
+import { templateCommand } from './commands/template'
 
 // Explicit CLI options interface
 interface CLIOptions {
@@ -25,6 +32,14 @@ const commands: Record<string, CommandHandler> = {
   step: stepCommand,
   run: runCommand,
   status: statusCommand,
+  dep: depCommand,
+  group: groupCommand,
+  fusion: fusionCommand,
+  gate: gateCommand,
+  stop: (sub, args, opts) => controlCommand('stop', args, opts),
+  restart: (sub, args, opts) => controlCommand('restart', args, opts),
+  mprocs: mprocsCommand,
+  template: templateCommand,
 }
 
 // Error formatting utility
@@ -65,10 +80,19 @@ Usage:
   seqctl <command> [subcommand] [options]
 
 Commands:
-  init                    Initialize .threados/ directory
-  step add|edit|rm|clone  Manage steps
-  run step|runnable       Execute steps
-  status [--watch]        Show sequence status
+  init                        Initialize .threados/ directory
+  step add|edit|rm|clone      Manage steps
+  run step|runnable|group     Execute steps
+  status [--watch]            Show sequence status
+  dep add|rm                  Manage step dependencies
+  group parallelize|list      Manage parallel groups
+  fusion create               Create fusion (candidate+synth) steps
+  gate insert|approve|block|list  Manage gates
+  stop <stepId>               Stop a running step
+  restart <stepId>            Restart a step
+  mprocs open|select          Manage mprocs sessions
+  template apply <type>       Apply a thread template
+    Types: base, parallel, chained, fusion, orchestrated, long-autonomy
 
 Options:
   -j, --json              Output as JSON
