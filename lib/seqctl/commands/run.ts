@@ -5,7 +5,7 @@ import { MprocsClient } from '../../mprocs/client'
 import { updateStepProcess, readMprocsMap } from '../../mprocs/state'
 import { runStep } from '../../runner/wrapper'
 import { saveRunArtifacts } from '../../runner/artifacts'
-import { StepNotFoundError } from '../../errors'
+import { StepNotFoundError, GroupNotFoundError } from '../../errors'
 import type { Step, Sequence, StepStatus } from '../../sequence/schema'
 
 interface CLIOptions {
@@ -256,8 +256,52 @@ export async function runCommand(
         }
       }
     }
+  } else if (subcommand === 'group') {
+    // Run all READY steps in a group
+    const groupId = args[0]
+    if (!groupId) {
+      const errorMsg = 'Group ID required: seqctl run group <groupId>'
+      if (options.json) {
+        console.log(JSON.stringify({ error: errorMsg, success: false }))
+      } else {
+        console.error(errorMsg)
+      }
+      process.exit(1)
+    }
+
+    const groupSteps = sequence.steps.filter(s => s.group_id === groupId)
+    if (groupSteps.length === 0) {
+      throw new GroupNotFoundError(groupId)
+    }
+
+    const readyGroupSteps = groupSteps.filter(s => s.status === 'READY')
+    const executed: RunStepResult[] = []
+
+    // Run group steps in parallel (Promise.all)
+    const results = await Promise.all(
+      readyGroupSteps.map(step =>
+        executeSingleStep(basePath, sequence, step.id, runId, mprocsClient)
+      )
+    )
+    executed.push(...results)
+
+    const result: RunRunnableResult = {
+      success: executed.every(e => e.success),
+      executed,
+      skipped: [],
+    }
+
+    if (options.json) {
+      console.log(JSON.stringify(result))
+    } else {
+      console.log(`Executed ${executed.length} step(s) in group '${groupId}'`)
+      for (const e of executed) {
+        const status = e.success ? 'DONE' : 'FAILED'
+        console.log(`  ${e.stepId}: ${status} (${e.duration}ms)`)
+      }
+    }
   } else {
-    const errorMsg = 'Unknown subcommand. Usage: seqctl run step|runnable'
+    const errorMsg = 'Unknown subcommand. Usage: seqctl run step|runnable|group'
     if (options.json) {
       console.log(JSON.stringify({ error: errorMsg, success: false }))
     } else {

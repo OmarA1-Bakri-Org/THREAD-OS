@@ -63,3 +63,33 @@ export class ProcessTimeoutError extends ThreadOSError {
     this.name = 'ProcessTimeoutError'
   }
 }
+
+/**
+ * Thrown when a gate cannot be found by ID
+ */
+export class GateNotFoundError extends ThreadOSError {
+  constructor(gateId: string) {
+    super(`Gate not found: ${gateId}`, 'GATE_NOT_FOUND')
+    this.name = 'GateNotFoundError'
+  }
+}
+
+/**
+ * Thrown when an action violates the policy engine
+ */
+export class PolicyViolationError extends ThreadOSError {
+  constructor(action: string, reason: string) {
+    super(`Policy violation on '${action}': ${reason}`, 'POLICY_VIOLATION')
+    this.name = 'PolicyViolationError'
+  }
+}
+
+/**
+ * Thrown when a group cannot be found
+ */
+export class GroupNotFoundError extends ThreadOSError {
+  constructor(groupId: string) {
+    super(`Group not found: ${groupId}`, 'GROUP_NOT_FOUND')
+    this.name = 'GroupNotFoundError'
+  }
+}
