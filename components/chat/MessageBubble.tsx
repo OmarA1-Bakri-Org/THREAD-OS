@@ -1,5 +1,3 @@
-'use client'
-
 interface MessageBubbleProps {
   role: 'user' | 'assistant'
   content: string

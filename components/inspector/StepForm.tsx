@@ -1,5 +1,3 @@
-'use client'
-
 interface StepData {
   id: string
   name: string
@@ -11,31 +9,31 @@ interface StepData {
 
 export function StepForm({ step }: { step: StepData }) {
   return (
-    <div className="space-y-3 mt-3">
+    <dl className="space-y-3 mt-3">
       <div>
-        <label className="text-xs text-gray-500">Name</label>
-        <div className="text-sm font-medium">{step.name}</div>
+        <dt className="text-xs text-muted-foreground">Name</dt>
+        <dd className="text-sm font-medium">{step.name}</dd>
       </div>
       <div className="grid grid-cols-2 gap-2">
         <div>
-          <label className="text-xs text-gray-500">Type</label>
-          <div className="text-sm">{step.type}</div>
+          <dt className="text-xs text-muted-foreground">Type</dt>
+          <dd className="text-sm">{step.type}</dd>
         </div>
         <div>
-          <label className="text-xs text-gray-500">Model</label>
-          <div className="text-sm">{step.model}</div>
+          <dt className="text-xs text-muted-foreground">Model</dt>
+          <dd className="text-sm">{step.model}</dd>
         </div>
       </div>
       <div>
-        <label className="text-xs text-gray-500">Status</label>
-        <div className="text-sm font-mono">{step.status}</div>
+        <dt className="text-xs text-muted-foreground">Status</dt>
+        <dd className="text-sm font-mono">{step.status}</dd>
       </div>
       {step.dependsOn.length > 0 && (
         <div>
-          <label className="text-xs text-gray-500">Dependencies</label>
-          <div className="text-sm">{step.dependsOn.join(', ')}</div>
+          <dt className="text-xs text-muted-foreground">Dependencies</dt>
+          <dd className="text-sm">{step.dependsOn.join(', ')}</dd>
         </div>
       )}
-    </div>
+    </dl>
   )
 }

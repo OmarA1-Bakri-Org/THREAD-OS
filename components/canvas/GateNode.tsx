@@ -1,24 +1,47 @@
 'use client'
 
-import { memo } from 'react'
-import { Handle, Position, type NodeProps } from '@xyflow/react'
+import { memo, useCallback } from 'react'
+import { Handle, Position, type NodeProps, type Node } from '@xyflow/react'
 import { useUIStore } from '@/lib/ui/store'
 
-function GateNodeComponent({ id, data }: NodeProps) {
-  const d = data as { id: string; name: string; status: string; color: string }
+export interface GateNodeData {
+  id: string
+  name: string
+  status: string
+  color: string
+  [key: string]: unknown
+}
+
+function GateNodeComponent({ id, data }: NodeProps<Node<GateNodeData>>) {
+  const d = data as GateNodeData
   const setSelected = useUIStore(s => s.setSelectedNodeId)
+
+  const handleSelect = useCallback(() => setSelected(id), [setSelected, id])
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault()
+        handleSelect()
+      }
+    },
+    [handleSelect]
+  )
 
   return (
     <div
-      onClick={() => setSelected(id)}
-      className="cursor-pointer flex items-center justify-center"
+      role="button"
+      tabIndex={0}
+      aria-label={`Gate ${d.name}, status ${d.status}`}
+      onClick={handleSelect}
+      onKeyDown={handleKeyDown}
+      className="cursor-pointer flex items-center justify-center focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 rounded"
       style={{ width: 80, height: 80 }}
     >
       <Handle type="target" position={Position.Left} />
       <div
         className="flex flex-col items-center justify-center shadow-sm hover:shadow-md transition-shadow"
         style={{
-          width: 60, height: 60, background: 'white',
+          width: 60, height: 60, background: 'hsl(var(--card))',
           border: `2px solid ${d.color}`,
           transform: 'rotate(45deg)',
         }}

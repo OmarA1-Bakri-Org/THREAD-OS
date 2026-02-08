@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, type KeyboardEvent } from 'react'
+import { useState, useCallback, useRef, useEffect, type KeyboardEvent } from 'react'
 import { Send } from 'lucide-react'
 
 interface ChatInputProps {
@@ -10,6 +10,15 @@ interface ChatInputProps {
 
 export function ChatInput({ onSend, disabled }: ChatInputProps) {
   const [value, setValue] = useState('')
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  useEffect(() => {
+    const el = textareaRef.current
+    if (el) {
+      el.style.height = 'auto'
+      el.style.height = Math.min(el.scrollHeight, 120) + 'px'
+    }
+  }, [value])
 
   const handleSend = useCallback(() => {
     const trimmed = value.trim()
@@ -29,15 +38,16 @@ export function ChatInput({ onSend, disabled }: ChatInputProps) {
   )
 
   return (
-    <div className="flex items-center gap-2 p-2 border-t">
-      <input
-        type="text"
+    <div className="flex items-end gap-2 p-2 border-t">
+      <textarea
+        ref={textareaRef}
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={handleKeyDown}
         placeholder="Ask about your sequence..."
         disabled={disabled}
-        className="flex-1 px-3 py-2 text-sm border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
+        rows={1}
+        className="flex-1 px-3 py-2 text-sm border rounded-md bg-background focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50 resize-none"
       />
       <button
         onClick={handleSend}

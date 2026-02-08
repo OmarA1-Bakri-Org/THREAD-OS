@@ -47,13 +47,18 @@ export function ChatPanel() {
       let assistantContent = ''
       let actions: ProposedAction[] = []
       let diff = ''
+      let lineBuffer = ''
 
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
 
-        const chunk = decoder.decode(value)
-        const lines = chunk.split('\n')
+        const chunk = decoder.decode(value, { stream: true })
+        lineBuffer += chunk
+        const lines = lineBuffer.split('\n')
+        // Keep the last incomplete line in the buffer
+        lineBuffer = lines.pop() || ''
+
         for (const line of lines) {
           if (!line.startsWith('data: ')) continue
           try {
@@ -64,6 +69,18 @@ export function ChatPanel() {
           } catch {
             // ignore parse errors on partial chunks
           }
+        }
+      }
+
+      // Process any remaining buffered line
+      if (lineBuffer.startsWith('data: ')) {
+        try {
+          const event = JSON.parse(lineBuffer.slice(6))
+          if (event.type === 'message') assistantContent += event.data.content
+          if (event.type === 'actions') actions = event.data.actions
+          if (event.type === 'diff') diff = event.data.diff
+        } catch {
+          // ignore
         }
       }
 
@@ -90,8 +107,29 @@ export function ChatPanel() {
   }, [])
 
   const handleApply = useCallback(async (actions: ProposedAction[]) => {
-    // TODO: call validator.apply() via API
-    console.log('Apply actions:', actions)
+    try {
+      const res = await fetch('/api/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ actions }),
+      })
+      const result = await res.json()
+      if (!result.success) {
+        console.error('Apply failed:', result)
+      }
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: crypto.randomUUID(),
+          role: 'assistant',
+          content: result.success
+            ? `✅ Applied ${actions.length} action(s) successfully.`
+            : `❌ Apply failed: ${result.errors?.join(', ') || 'Unknown error'}`,
+        },
+      ])
+    } catch (error) {
+      console.error('Apply error:', error)
+    }
   }, [])
 
   const handleDiscard = useCallback(() => {
@@ -101,7 +139,7 @@ export function ChatPanel() {
   return (
     <div className="flex flex-col h-full">
       <div className="px-3 py-2 border-b text-sm font-medium">Chat</div>
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 space-y-1">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 space-y-1" aria-live="polite">
         {messages.length === 0 && (
           <div className="text-xs text-muted-foreground text-center mt-4">
             Ask me to modify your sequence...
