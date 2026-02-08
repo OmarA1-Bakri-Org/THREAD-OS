@@ -1,8 +1,10 @@
+import { memo } from 'react'
+
 interface DiffPreviewProps {
   diff: string
 }
 
-export function DiffPreview({ diff }: DiffPreviewProps) {
+export const DiffPreview = memo(function DiffPreview({ diff }: DiffPreviewProps) {
   if (!diff) return null
 
   const lines = diff.split('\n')
@@ -27,4 +29,4 @@ export function DiffPreview({ diff }: DiffPreviewProps) {
       </pre>
     </div>
   )
-}
+})

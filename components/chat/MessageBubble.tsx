@@ -1,9 +1,11 @@
+import { memo } from 'react'
+
 interface MessageBubbleProps {
   role: 'user' | 'assistant'
   content: string
 }
 
-export function MessageBubble({ role, content }: MessageBubbleProps) {
+export const MessageBubble = memo(function MessageBubble({ role, content }: MessageBubbleProps) {
   const isUser = role === 'user'
 
   return (
@@ -19,4 +21,4 @@ export function MessageBubble({ role, content }: MessageBubbleProps) {
       </div>
     </div>
   )
-}
+})

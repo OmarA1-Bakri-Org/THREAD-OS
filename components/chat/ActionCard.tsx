@@ -1,5 +1,6 @@
 'use client'
 
+import { memo } from 'react'
 import type { ProposedAction } from '@/lib/chat/validator'
 
 interface ActionCardProps {
@@ -8,7 +9,7 @@ interface ActionCardProps {
   onDiscard: () => void
 }
 
-export function ActionCard({ actions, onApply, onDiscard }: ActionCardProps) {
+export const ActionCard = memo(function ActionCard({ actions, onApply, onDiscard }: ActionCardProps) {
   if (actions.length === 0) return null
 
   return (
@@ -39,4 +40,4 @@ export function ActionCard({ actions, onApply, onDiscard }: ActionCardProps) {
       </div>
     </div>
   )
-}
+})

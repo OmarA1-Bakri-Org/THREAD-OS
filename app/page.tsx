@@ -1,12 +1,26 @@
 'use client'
 
+import dynamic from 'next/dynamic'
 import { Group, Panel, Separator } from 'react-resizable-panels'
-import { SequenceCanvas } from '@/components/canvas/SequenceCanvas'
-import { StepInspector } from '@/components/inspector/StepInspector'
 import { Toolbar } from '@/components/toolbar/Toolbar'
-import { ChatPanel } from '@/components/chat/ChatPanel'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
+import { LoadingSpinner } from '@/components/LoadingSpinner'
 import { useUIStore } from '@/lib/ui/store'
+
+const SequenceCanvas = dynamic(
+  () => import('@/components/canvas/SequenceCanvas').then(m => m.SequenceCanvas),
+  { ssr: false, loading: () => <LoadingSpinner message="Loading canvas..." /> }
+)
+
+const StepInspector = dynamic(
+  () => import('@/components/inspector/StepInspector').then(m => m.StepInspector),
+  { loading: () => <LoadingSpinner message="Loading inspector..." /> }
+)
+
+const ChatPanel = dynamic(
+  () => import('@/components/chat/ChatPanel').then(m => m.ChatPanel),
+  { loading: () => <LoadingSpinner message="Loading chat..." /> }
+)
 
 export default function Home() {
   const inspectorOpen = useUIStore(s => s.inspectorOpen)
