@@ -1,7 +1,5 @@
 import { z } from 'zod'
-import { readSequence, writeSequence } from '../sequence/parser'
-import { validateDAG } from '../sequence/dag'
-import YAML from 'yaml'
+import { readSequence } from '../sequence/parser'
 
 export const ProposedActionSchema = z.object({
   id: z.string(),
@@ -84,7 +82,6 @@ export async function dryRunActions(
 
   try {
     const beforeSequence = await readSequence(basePath)
-    const beforeYaml = YAML.stringify(beforeSequence, { indent: 2 })
 
     // For dry-run we just validate the commands parse correctly
     // and compute what the sequence would look like after applying them

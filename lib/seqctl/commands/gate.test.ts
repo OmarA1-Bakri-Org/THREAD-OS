@@ -60,7 +60,12 @@ function makeSequence(overrides?: Partial<Sequence>): Sequence {
 }
 
 function lastJsonOutput(spy: ReturnType<typeof spyOn>): Record<string, unknown> {
-  const calls = (spy as any).mock.calls
+  interface MockSpy {
+    mock: {
+      calls: Array<[string]>
+    }
+  }
+  const calls = (spy as unknown as MockSpy).mock.calls
   return JSON.parse(calls[calls.length - 1][0] as string)
 }
 
@@ -143,7 +148,7 @@ describe('gateCommand', () => {
   test('list gates', async () => {
     await gateCommand('list', [], JSON_OPTS)
 
-    const output = lastJsonOutput(logSpy) as any
+    const output = lastJsonOutput(logSpy)
     expect(output.success).toBe(true)
     expect(output.action).toBe('list')
     expect(output.gates).toHaveLength(1)

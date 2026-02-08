@@ -1,6 +1,5 @@
 import { describe, expect, test, beforeEach, afterEach } from 'bun:test'
 import { PolicyEngine } from './engine'
-import type { PolicyAction } from './engine'
 import type { PolicyFile } from './schema'
 import { PolicyFileSchema } from './schema'
 import { mkdtemp, rm, writeFile, mkdir } from 'fs/promises'
@@ -186,7 +185,6 @@ describe('validate - forbidden patterns', () => {
   })
 
   test('default policy blocks sudo', () => {
-    const engine = new PolicyEngine('/fake')
     // Need to ensure "sudo" is in allowed commands or use empty allowlist
     const policy: PolicyFile = { ...defaultPolicy(), allowed_commands: [] }
     const eng = new PolicyEngine('/fake', policy)
@@ -388,7 +386,6 @@ describe('validate - POWER mode confirmation', () => {
 describe('validate - CWD restriction', () => {
   test('default allowed_cwd (./**) allows any path', () => {
     const engine = new PolicyEngine('/fake')
-    const result = engine.validate({ type: 'run.step', cwd: '/some/random/path' })
     // The ./** pattern uses startsWith('.') after stripping /**, so let's test with
     // a relative path that would match
     const result2 = engine.validate({ type: 'run.step', cwd: './src/lib' })

@@ -2,7 +2,6 @@ import { readSequence, writeSequence } from '../sequence/parser'
 import { MprocsClient } from '../mprocs/client'
 import { readMprocsMap } from '../mprocs/state'
 import { AuditLogger } from '../audit/logger'
-import type { Sequence } from '../sequence/schema'
 
 export interface ReconciliationResult {
   orphanedSteps: string[]

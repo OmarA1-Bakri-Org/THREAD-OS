@@ -1,5 +1,5 @@
 import { describe, expect, test, beforeEach, afterEach, spyOn } from 'bun:test'
-import { mkdtemp, rm, mkdir, access, writeFile } from 'fs/promises'
+import { mkdtemp, rm, mkdir, access } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { readSequence, writeSequence } from '../../lib/sequence/parser'
@@ -17,7 +17,12 @@ import type { Sequence } from '../../lib/sequence/schema'
 const JSON_OPTS = { json: true, help: false, watch: false } as const
 
 function lastJsonOutput(spy: ReturnType<typeof spyOn>): Record<string, unknown> {
-  const calls = (spy as any).mock.calls
+  interface MockSpy {
+    mock: {
+      calls: Array<[string]>
+    }
+  }
+  const calls = (spy as unknown as MockSpy).mock.calls
   return JSON.parse(calls[calls.length - 1][0] as string)
 }
 
@@ -177,7 +182,7 @@ describe('CLI lifecycle integration', () => {
     logSpy.mockClear()
     await statusCommand(undefined, [], JSON_OPTS)
 
-    const status = lastJsonOutput(logSpy) as any
+    const status = lastJsonOutput(logSpy)
     expect(status.name).toBe('Integration Test Pipeline')
     expect(status.steps).toHaveLength(5)
     expect(status.gates).toHaveLength(1)
@@ -306,9 +311,10 @@ describe('CLI lifecycle integration', () => {
     // Status should report 4 total steps (1 DONE + 3 READY)
     logSpy.mockClear()
     await statusCommand(undefined, [], JSON_OPTS)
-    const status = lastJsonOutput(logSpy) as any
-    expect(status.summary.total).toBe(4)
-    expect(status.summary.done).toBe(1)
-    expect(status.summary.ready).toBe(3)
+    const status = lastJsonOutput(logSpy)
+    const summary = status.summary as { total: number; done: number; ready: number }
+    expect(summary.total).toBe(4)
+    expect(summary.done).toBe(1)
+    expect(summary.ready).toBe(3)
   })
 })

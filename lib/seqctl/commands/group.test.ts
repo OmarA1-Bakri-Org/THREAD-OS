@@ -58,7 +58,12 @@ function makeSequence(): Sequence {
 }
 
 function lastJsonOutput(spy: ReturnType<typeof spyOn>): Record<string, unknown> {
-  const calls = (spy as any).mock.calls
+  interface MockSpy {
+    mock: {
+      calls: Array<[string]>
+    }
+  }
+  const calls = (spy as unknown as MockSpy).mock.calls
   return JSON.parse(calls[calls.length - 1][0] as string)
 }
 
@@ -93,7 +98,7 @@ describe('groupCommand', () => {
       JSON_OPTS,
     )
 
-    const output = lastJsonOutput(logSpy) as any
+    const output = lastJsonOutput(logSpy)
     expect(output.success).toBe(true)
     expect(output.groupId).toBe('my-group')
     expect(output.steps).toEqual(['worker-1', 'worker-2'])
@@ -127,12 +132,13 @@ describe('groupCommand', () => {
     // Now list
     await groupCommand('list', [], JSON_OPTS)
 
-    const output = lastJsonOutput(logSpy) as any
+    const output = lastJsonOutput(logSpy)
     expect(output.success).toBe(true)
     expect(output.groups).toHaveLength(1)
-    expect(output.groups[0].groupId).toBe('grp-alpha')
-    expect(output.groups[0].steps).toHaveLength(3)
-    expect(output.groups[0].steps.map((s: any) => s.id).sort()).toEqual([
+    const groups = output.groups as Array<{ groupId: string; steps: Array<{ id: string }> }>
+    expect(groups[0].groupId).toBe('grp-alpha')
+    expect(groups[0].steps).toHaveLength(3)
+    expect(groups[0].steps.map((s) => s.id).sort()).toEqual([
       'worker-1',
       'worker-2',
       'worker-3',
