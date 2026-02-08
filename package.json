@@ -2,6 +2,9 @@
   "name": "threader",
   "version": "0.1.0",
   "private": true,
+  "bin": {
+    "seqctl": "./lib/seqctl/index.ts"
+  },
   "scripts": {
     "dev": "next dev",
     "build": "next build",
