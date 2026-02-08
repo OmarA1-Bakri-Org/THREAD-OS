@@ -23,32 +23,24 @@ export default function Home() {
                 <SequenceCanvas />
               </ErrorBoundary>
             </Panel>
-            {inspectorOpen && (
-              <>
-                <Separator />
-                <Panel defaultSize={30} minSize={20}>
-                  <ErrorBoundary>
-                    <div className="h-full overflow-auto border-l">
-                      <StepInspector />
-                    </div>
-                  </ErrorBoundary>
-                </Panel>
-              </>
-            )}
+            <Separator className={inspectorOpen ? '' : 'hidden'} />
+            <Panel defaultSize={30} minSize={20} className={inspectorOpen ? '' : 'hidden'}>
+              <ErrorBoundary>
+                <div className="h-full overflow-auto border-l" style={{ display: inspectorOpen ? 'block' : 'none' }}>
+                  <StepInspector />
+                </div>
+              </ErrorBoundary>
+            </Panel>
           </Group>
         </Panel>
-        {chatOpen && (
-          <>
-            <Separator />
-            <Panel defaultSize={30} minSize={15}>
-              <div className="h-full border-t">
-                <ErrorBoundary>
-                  <ChatPanel />
-                </ErrorBoundary>
-              </div>
-            </Panel>
-          </>
-        )}
+        <Separator className={chatOpen ? '' : 'hidden'} />
+        <Panel defaultSize={30} minSize={15} className={chatOpen ? '' : 'hidden'}>
+          <div className="h-full border-t" style={{ display: chatOpen ? 'block' : 'none' }}>
+            <ErrorBoundary>
+              <ChatPanel />
+            </ErrorBoundary>
+          </div>
+        </Panel>
       </Group>
     </div>
   )

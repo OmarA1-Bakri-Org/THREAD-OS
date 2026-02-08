@@ -1,5 +1,8 @@
 'use client'
 
+import { useEffect, useRef, useCallback } from 'react'
+import { useTheme } from 'next-themes'
+import { Sun, Moon, MessageSquare } from 'lucide-react'
 import { useUIStore } from '@/lib/ui/store'
 import { useStatus, useRunRunnable } from '@/lib/ui/api'
 
@@ -10,11 +13,30 @@ export function Toolbar() {
   const setSearchQuery = useUIStore(s => s.setSearchQuery)
   const toggleMinimap = useUIStore(s => s.toggleMinimap)
   const toggleInspector = useUIStore(s => s.toggleInspector)
+  const toggleChat = useUIStore(s => s.toggleChat)
+  const { theme, setTheme } = useTheme()
+
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const handleSearchChange = useCallback(
+    (e: React.ChangeEvent<HTMLInputElement>) => {
+      const val = e.target.value
+      if (timerRef.current) clearTimeout(timerRef.current)
+      timerRef.current = setTimeout(() => setSearchQuery(val), 300)
+    },
+    [setSearchQuery]
+  )
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current)
+    }
+  }, [])
 
   return (
-    <div className="h-12 border-b bg-white flex items-center px-4 gap-4 shrink-0">
+    <div className="h-12 border-b bg-card flex items-center px-4 gap-4 shrink-0">
       <span className="font-bold text-sm">ThreadOS</span>
-      {status && <span className="text-xs text-gray-500">{status.name}</span>}
+      {status && <span className="text-xs text-muted-foreground">{status.name}</span>}
       <button
         onClick={() => runRunnable.mutate()}
         disabled={runRunnable.isPending}
@@ -24,15 +46,25 @@ export function Toolbar() {
       </button>
       <input
         type="text"
-        value={searchQuery}
-        onChange={e => setSearchQuery(e.target.value)}
+        defaultValue={searchQuery}
+        onChange={handleSearchChange}
         placeholder="Search steps..."
-        className="border rounded px-2 py-1 text-sm w-48"
+        className="border rounded px-2 py-1 text-sm w-48 bg-background"
       />
-      <button onClick={toggleMinimap} className="text-xs text-gray-600 hover:text-gray-900">Minimap</button>
-      <button onClick={toggleInspector} className="text-xs text-gray-600 hover:text-gray-900">Inspector</button>
+      <button onClick={toggleMinimap} className="text-xs text-muted-foreground hover:text-foreground">Minimap</button>
+      <button onClick={toggleInspector} className="text-xs text-muted-foreground hover:text-foreground">Inspector</button>
+      <button onClick={toggleChat} className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1">
+        <MessageSquare className="h-3 w-3" /> Chat
+      </button>
+      <button
+        onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}
+        className="p-1 rounded hover:bg-accent text-muted-foreground"
+        aria-label="Toggle dark mode"
+      >
+        {theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+      </button>
       {status && (
-        <div className="ml-auto flex gap-3 text-xs text-gray-500">
+        <div className="ml-auto flex gap-3 text-xs text-muted-foreground max-md:hidden">
           <span>Ready: {status.summary.ready}</span>
           <span className="text-blue-600">Running: {status.summary.running}</span>
           <span className="text-green-600">Done: {status.summary.done}</span>

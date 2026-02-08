@@ -4,21 +4,11 @@ import { useMemo } from 'react'
 import dagre from 'dagre'
 import type { Node, Edge } from '@xyflow/react'
 import type { SequenceStatus } from '@/app/api/status/route'
+import { STATUS_COLORS } from '@/lib/ui/constants'
 
 const NODE_WIDTH = 200
 const NODE_HEIGHT = 60
 const GATE_SIZE = 80
-
-const STATUS_COLORS: Record<string, string> = {
-  READY: '#94a3b8',
-  RUNNING: '#3b82f6',
-  DONE: '#22c55e',
-  FAILED: '#ef4444',
-  BLOCKED: '#f97316',
-  NEEDS_REVIEW: '#eab308',
-  PENDING: '#94a3b8',
-  APPROVED: '#22c55e',
-}
 
 export function useSequenceGraph(status: SequenceStatus | undefined, searchQuery: string) {
   return useMemo(() => {

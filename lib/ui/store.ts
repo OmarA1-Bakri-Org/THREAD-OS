@@ -17,7 +17,7 @@ interface UIStore {
 
 export const useUIStore = create<UIStore>((set) => ({
   selectedNodeId: null,
-  setSelectedNodeId: (id) => set({ selectedNodeId: id }),
+  setSelectedNodeId: (id) => set({ selectedNodeId: id, ...(id != null ? { inspectorOpen: true } : {}) }),
   inspectorOpen: true,
   toggleInspector: () => set((s) => ({ inspectorOpen: !s.inspectorOpen })),
   chatOpen: false,

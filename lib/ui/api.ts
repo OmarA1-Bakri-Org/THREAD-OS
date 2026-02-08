@@ -30,6 +30,7 @@ export function useRunStep() {
   return useMutation({
     mutationFn: (stepId: string) => postJson('/api/run', { stepId }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['status'] }); qc.invalidateQueries({ queryKey: ['sequence'] }) },
+    onError: (error) => { console.error('Run step failed:', error) },
   })
 }
 
@@ -38,6 +39,7 @@ export function useRunRunnable() {
   return useMutation({
     mutationFn: () => postJson('/api/run', { mode: 'runnable' }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['status'] }); qc.invalidateQueries({ queryKey: ['sequence'] }) },
+    onError: (error) => { console.error('Run runnable failed:', error) },
   })
 }
 
@@ -46,6 +48,7 @@ export function useStopStep() {
   return useMutation({
     mutationFn: (stepId: string) => postJson('/api/stop', { stepId }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['status'] }); qc.invalidateQueries({ queryKey: ['sequence'] }) },
+    onError: (error) => { console.error('Stop step failed:', error) },
   })
 }
 
@@ -54,6 +57,7 @@ export function useRestartStep() {
   return useMutation({
     mutationFn: (stepId: string) => postJson('/api/restart', { stepId }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['status'] }); qc.invalidateQueries({ queryKey: ['sequence'] }) },
+    onError: (error) => { console.error('Restart step failed:', error) },
   })
 }
 
@@ -62,6 +66,7 @@ export function useApproveGate() {
   return useMutation({
     mutationFn: (gateId: string) => postJson('/api/gate', { action: 'approve', gateId }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['status'] }); qc.invalidateQueries({ queryKey: ['sequence'] }) },
+    onError: (error) => { console.error('Approve gate failed:', error) },
   })
 }
 
@@ -70,5 +75,6 @@ export function useBlockGate() {
   return useMutation({
     mutationFn: (gateId: string) => postJson('/api/gate', { action: 'block', gateId }),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['status'] }); qc.invalidateQueries({ queryKey: ['sequence'] }) },
+    onError: (error) => { console.error('Block gate failed:', error) },
   })
 }
