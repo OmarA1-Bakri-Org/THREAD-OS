@@ -57,6 +57,46 @@ export class CircularDependencyError extends ThreadOSError {
 /**
  * Thrown when a step execution exceeds its timeout
  */
+/**
+ * Thrown when a gate cannot be found by ID
+ */
+export class GateNotFoundError extends ThreadOSError {
+  constructor(gateId: string) {
+    super(`Gate not found: ${gateId}`, 'GATE_NOT_FOUND')
+    this.name = 'GateNotFoundError'
+  }
+}
+
+/**
+ * Thrown when a group cannot be found by ID
+ */
+export class GroupNotFoundError extends ThreadOSError {
+  constructor(groupId: string) {
+    super(`Group not found: ${groupId}`, 'GROUP_NOT_FOUND')
+    this.name = 'GroupNotFoundError'
+  }
+}
+
+/**
+ * Thrown when a dependency is not found
+ */
+export class DependencyNotFoundError extends ThreadOSError {
+  constructor(stepId: string, depId: string) {
+    super(`Dependency '${depId}' not found on step '${stepId}'`, 'DEPENDENCY_NOT_FOUND')
+    this.name = 'DependencyNotFoundError'
+  }
+}
+
+/**
+ * Thrown when a template type is invalid
+ */
+export class InvalidTemplateError extends ThreadOSError {
+  constructor(templateType: string) {
+    super(`Invalid template type: ${templateType}`, 'INVALID_TEMPLATE')
+    this.name = 'InvalidTemplateError'
+  }
+}
+
 export class ProcessTimeoutError extends ThreadOSError {
   constructor(stepId: string, timeoutMs: number) {
     super(`Step '${stepId}' timed out after ${timeoutMs}ms`, 'PROCESS_TIMEOUT')
