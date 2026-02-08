@@ -6,7 +6,6 @@ import { validateDAG, topologicalSort } from '@/lib/sequence/dag'
 import { getBasePath } from '@/lib/config'
 import { jsonError, auditLog, checkPolicy, handleError } from '@/lib/api-helpers'
 import type { Sequence, Step } from '@/lib/sequence/schema'
-import { MprocsClient } from '@/lib/mprocs/client'
 import { runStep } from '@/lib/runner/wrapper'
 import { saveRunArtifacts } from '@/lib/runner/artifacts'
 

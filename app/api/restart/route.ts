@@ -3,7 +3,6 @@ import { z } from 'zod'
 import { readSequence, writeSequence } from '@/lib/sequence/parser'
 import { getBasePath } from '@/lib/config'
 import { auditLog, handleError } from '@/lib/api-helpers'
-import { MprocsClient } from '@/lib/mprocs/client'
 import { readMprocsMap } from '@/lib/mprocs/state'
 import { StepNotFoundError } from '@/lib/errors'
 
@@ -20,7 +19,10 @@ export async function POST(request: Request) {
     const mprocsMap = await readMprocsMap(bp)
     const idx = mprocsMap[stepId]
     if (idx !== undefined) {
-      try { await new MprocsClient().restartProcess(idx) } catch { /* ok */ }
+      try {
+        const { MprocsClient } = await import('@/lib/mprocs/client')
+        await new MprocsClient().restartProcess(idx)
+      } catch { /* ok */ }
     }
     step.status = 'RUNNING'
     await writeSequence(bp, seq)
