@@ -183,6 +183,20 @@ export class ActionValidator {
 }
 
 /**
+ * Parse a value that should be boolean but may arrive as a string.
+ * Returns the boolean value, or null if the value cannot be interpreted as boolean.
+ */
+function parseBooleanField(value: unknown): boolean | null {
+  if (typeof value === 'boolean') return value
+  if (typeof value === 'string') {
+    const normalized = value.trim().toLowerCase()
+    if (normalized === 'true') return true
+    if (normalized === 'false') return false
+  }
+  return null
+}
+
+/**
  * Apply a single action to a sequence object (mutates in place).
  * Returns error string or null on success.
  */
@@ -258,8 +272,16 @@ function applyAction(seq: Sequence, action: ProposedAction): string | null {
         if (isNaN(fanout)) return `Invalid fanout: must be a number`
         step.fanout = fanout
       }
-      if (updates.fusion_candidates !== undefined) step.fusion_candidates = Boolean(updates.fusion_candidates)
-      if (updates.fusion_synth !== undefined) step.fusion_synth = Boolean(updates.fusion_synth)
+      if (updates.fusion_candidates !== undefined) {
+        const parsed = parseBooleanField(updates.fusion_candidates)
+        if (parsed === null) return `Invalid fusion_candidates: expected boolean or "true"/"false"`
+        step.fusion_candidates = parsed
+      }
+      if (updates.fusion_synth !== undefined) {
+        const parsed = parseBooleanField(updates.fusion_synth)
+        if (parsed === null) return `Invalid fusion_synth: expected boolean or "true"/"false"`
+        step.fusion_synth = parsed
+      }
       if (updates.watchdog_for !== undefined) step.watchdog_for = String(updates.watchdog_for)
       if (updates.orchestrator !== undefined) step.orchestrator = String(updates.orchestrator)
       if (updates.timeout_ms !== undefined) {
