@@ -43,6 +43,8 @@ export function handleError(err: unknown) {
   if (message.includes('not found') || message.includes('ENOENT')) {
     return jsonError(message, 'NOT_FOUND', 404)
   }
+  // Always log the full error server-side for debugging
+  console.error('[api-helpers] Internal error:', err instanceof Error ? err.stack || err.message : String(err))
   // Avoid leaking internal error details to client in production
   const safeMessage = process.env.NODE_ENV === 'production'
     ? 'Internal server error'

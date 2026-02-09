@@ -2,7 +2,7 @@ import { readSequence, writeSequence } from '../sequence/parser'
 import { PolicyEngine } from '../policy/engine'
 import * as audit from '../audit/logger'
 import YAML from 'yaml'
-import { StepSchema, StepTypeSchema, ModelTypeSchema, StepStatusSchema, type Sequence } from '../sequence/schema'
+import { StepSchema, StepTypeSchema, ModelTypeSchema, StepStatusSchema, FailPolicySchema, type Sequence } from '../sequence/schema'
 
 export interface ProposedAction {
   command: string
@@ -250,6 +250,27 @@ function applyAction(seq: Sequence, action: ProposedAction): string | null {
       if (updates.cwd !== undefined) step.cwd = String(updates.cwd)
       if (updates.depends_on !== undefined && Array.isArray(updates.depends_on)) {
         step.depends_on = updates.depends_on.map(String)
+      }
+      // Handle M3 extension fields
+      if (updates.group_id !== undefined) step.group_id = String(updates.group_id)
+      if (updates.fanout !== undefined) {
+        const fanout = Number(updates.fanout)
+        if (isNaN(fanout)) return `Invalid fanout: must be a number`
+        step.fanout = fanout
+      }
+      if (updates.fusion_candidates !== undefined) step.fusion_candidates = Boolean(updates.fusion_candidates)
+      if (updates.fusion_synth !== undefined) step.fusion_synth = Boolean(updates.fusion_synth)
+      if (updates.watchdog_for !== undefined) step.watchdog_for = String(updates.watchdog_for)
+      if (updates.orchestrator !== undefined) step.orchestrator = String(updates.orchestrator)
+      if (updates.timeout_ms !== undefined) {
+        const timeout = Number(updates.timeout_ms)
+        if (isNaN(timeout)) return `Invalid timeout_ms: must be a number`
+        step.timeout_ms = timeout
+      }
+      if (updates.fail_policy !== undefined) {
+        const policyResult = FailPolicySchema.safeParse(updates.fail_policy)
+        if (!policyResult.success) return `Invalid fail_policy: ${updates.fail_policy}`
+        step.fail_policy = policyResult.data
       }
       return null
     }

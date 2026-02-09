@@ -41,7 +41,13 @@ function getSafeEnv(extra: Record<string, string>): NodeJS.ProcessEnv {
       safe[key] = process.env[key]!
     }
   }
-  return { ...safe, ...extra } as NodeJS.ProcessEnv
+  // Filter extra through the same allowlist
+  for (const key of Object.keys(extra)) {
+    if (SAFE_ENV_KEYS.has(key) || key.startsWith('THREADOS_')) {
+      safe[key] = extra[key]
+    }
+  }
+  return safe as NodeJS.ProcessEnv
 }
 
 /**

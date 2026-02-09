@@ -62,7 +62,8 @@ export async function POST(request: NextRequest) {
         send('message', { content: responseText })
         send('actions', { actions: [] })
         send('done', {})
-      } catch {
+      } catch (e) {
+        console.error('[chat/route] Error processing SSE stream:', e)
         send('message', { content: 'Error processing request' })
         send('done', {})
       }
