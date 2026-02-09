@@ -1,5 +1,16 @@
 import type { TemplateResult, TemplateOptions } from './index'
 
+/**
+ * Generate a fusion template containing per-candidate steps and a synthesis step.
+ *
+ * @param options - Template configuration
+ * @param options.baseName - Base name used to construct each step id and display name
+ * @param options.model - Primary model used for the synthesis step (defaults to `claude-code`)
+ * @param options.cwd - Optional working directory to include on each step
+ * @param options.candidateModels - Optional list of candidate model names; duplicates are removed
+ * @returns The generated template result with `steps` describing each candidate and the synthesis step, and an empty `gates` array
+ * @throws Error if `candidateModels` is empty after deduplication
+ */
 export function generateFusionTemplate(options: TemplateOptions & { candidateModels?: Array<'claude-code' | 'codex' | 'gemini'> }): TemplateResult {
   const { baseName, model = 'claude-code', cwd, candidateModels: rawCandidates = ['claude-code', 'codex', 'gemini'] } = options
   const candidateModels = Array.from(new Set(rawCandidates))

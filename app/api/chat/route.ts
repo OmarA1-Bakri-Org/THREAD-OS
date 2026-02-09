@@ -26,6 +26,13 @@ const ApplyActionsSchema = z.object({
   policyMode: z.enum(['SAFE', 'POWER']).default('SAFE'),
 })
 
+/**
+ * Handle an incoming chat request and return a system prompt together with sequence context.
+ *
+ * @returns A NextResponse containing either:
+ *  - on success: an object with `success: true`, `systemPrompt`, `sequenceContext` (name, `stepCount`, `gateCount`, `steps`, `gates`) and `mode`; or
+ *  - on failure: an object with `error` and an HTTP status (400 for validation errors, 500 for server errors).
+ */
 export async function POST(request: Request) {
   try {
     const body = await request.json()
@@ -81,6 +88,22 @@ export async function POST(request: Request) {
   }
 }
 
+/**
+ * Apply proposed actions: validate them, perform a dry-run, log the application and return the resulting diff.
+ *
+ * Performs schema validation on the request body, validates action semantics according to the provided
+ * policy mode, executes a dry-run to compute the sequence diff, logs the successful application and
+ * returns the dry-run diff and action count. On validation or dry-run failure the response indicates the
+ * failing phase and includes the associated errors; on malformed input or unexpected errors the response
+ * contains an error message.
+ *
+ * @returns A JSON object describing the outcome:
+ * - On success: `{ success: true, phase: 'validated', dryRunDiff: <diff>, actionCount: <number> }`.
+ * - On action validation failure: `{ success: false, phase: 'validation', errors: <validationErrors> }`.
+ * - On dry-run failure: `{ success: false, phase: 'dry-run', errors: <dryRunErrors> }`.
+ * - On malformed request: `{ error: <message> }` (400).
+ * - On unexpected server error: `{ error: <message> }` (500).
+ */
 export async function PUT(request: Request) {
   try {
     const body = await request.json()

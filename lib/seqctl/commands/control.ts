@@ -19,7 +19,17 @@ interface ControlResult {
 }
 
 /**
- * Stop a running step
+ * Stop a sequence step that is currently running and persist the updated sequence.
+ *
+ * Attempts to stop the process associated with `stepId` via the provided `mprocsClient`.
+ * If the step is found and running, its status is set to `'FAILED'` and the sequence is written back;
+ * otherwise the result describes the error condition (missing step, not running, missing process index,
+ * or failure to stop the process).
+ *
+ * @param basePath - Filesystem path containing the sequence and mprocs map
+ * @param stepId - Identifier of the step to stop
+ * @param mprocsClient - Client used to control managed processes
+ * @returns A ControlResult describing success or failure. On success `status` will be `'FAILED'` and `message` will confirm the stop; on failure `error` will contain a descriptive message. 
  */
 async function stopStep(
   basePath: string,
@@ -83,7 +93,11 @@ async function stopStep(
 }
 
 /**
- * Restart a step
+ * Restart the process associated with a sequence step.
+ *
+ * @param basePath - Filesystem path containing the sequence and mprocs-map.json
+ * @param stepId - Identifier of the step to restart
+ * @returns A ControlResult describing the outcome: on success `success: true`, `action: 'restart'`, `stepId`, `status: 'RUNNING'` and a success `message`; on failure `success: false`, `action: 'restart'`, `stepId` and an `error` message explaining the reason
  */
 async function restartStep(
   basePath: string,

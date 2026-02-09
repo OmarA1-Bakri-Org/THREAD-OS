@@ -47,7 +47,11 @@ const VALID_COMMANDS = [
 ]
 
 /**
- * Validate that proposed actions are syntactically valid seqctl commands
+ * Checks that each proposed action is a recognised seqctl command.
+ *
+ * @param actions - Proposed actions to validate
+ * @param policyMode - Optional policy mode that may modify validation rules
+ * @returns ValidationResult with `valid` set to `true` when all actions are recognised; `errors` is an array of objects each containing `actionId` and an `error` message
  */
 export function validateActions(actions: ProposedAction[], policyMode?: string): ValidationResult {
   const errors: Array<{ actionId: string; error: string }> = []
@@ -73,8 +77,12 @@ export function validateActions(actions: ProposedAction[], policyMode?: string):
 }
 
 /**
- * Dry-run actions against the current sequence to preview changes.
- * Returns a YAML diff showing what would change.
+ * Produce a preview summary of how applying the proposed actions would change the current sequence.
+ *
+ * @param basePath - Filesystem path to the sequence repository to read the current sequence from
+ * @param actions - Array of proposed actions to validate and include in the preview
+ * @param policyMode - Optional policy mode string that influences command validation
+ * @returns An object describing the dry-run result: on success `success` is `true` and `sequenceDiff` contains a short summary of proposed changes; on failure `success` is `false` and `errors` lists validation or system errors
  */
 export async function dryRunActions(
   basePath: string,

@@ -183,6 +183,15 @@ const DEMO_DATA: SequenceData = {
   ],
 }
 
+/**
+ * Render the sequence canvas showing steps and gates as an interactive React Flow diagram.
+ *
+ * The canvas sources sequence data from the API (falling back to demo data), computes a layout,
+ * synchronises nodes and edges into React Flow state, and provides controls, background, optional minimap
+ * and click handlers that update UI store selection.
+ *
+ * @returns The React element containing the sequence flow canvas
+ */
 export function SequenceCanvas() {
   const { data: sequenceData, isLoading } = useSequence()
   const minimapVisible = useUIStore((s) => s.minimapVisible)

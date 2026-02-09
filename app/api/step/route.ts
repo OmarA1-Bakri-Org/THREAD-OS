@@ -163,6 +163,12 @@ async function handleEdit(body: z.infer<typeof EditStepBodySchema>) {
   })
 }
 
+/**
+ * Remove a step from the sequence if no other steps or gates depend on it.
+ *
+ * @param body - Request body containing `stepId`, the identifier of the step to remove
+ * @returns A JSON response. On success: `{ success: true, action: 'rm', stepId, message }`. On failure: `{ error }` with status `404` if the step does not exist or `400` if other steps/gates depend on the step.
+ */
 async function handleRm(body: z.infer<typeof RmStepBodySchema>) {
   const basePath = process.cwd()
   const sequence = await readSequence(basePath)

@@ -9,6 +9,11 @@ const RestartBodySchema = z.object({
   stepId: z.string().min(1, 'stepId is required'),
 })
 
+/**
+ * Handle POST requests to restart a sequence step by its ID.
+ *
+ * @returns A JSON HTTP response. On success the body contains `{ success: true, action: 'restart', stepId, status, message }`. On error the body contains `{ error }` and an appropriate HTTP status code (400 for bad requests, 404 if the step is not found, 500 for server or restart failures).
+ */
 export async function POST(request: Request) {
   try {
     const body = await request.json()

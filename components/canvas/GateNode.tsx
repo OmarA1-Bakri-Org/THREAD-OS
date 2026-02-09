@@ -12,6 +12,15 @@ interface GateNodeData {
   [key: string]: unknown
 }
 
+/**
+ * Render a gate node with a diamond status indicator, label and — when appropriate — approve/block actions.
+ *
+ * When the node's status is `PENDING` or `NEEDS_REVIEW`, action buttons are shown that invoke the approve or block mutations for the node's `gateId`.
+ *
+ * @param data - The node data (cast to GateNodeData) containing `label`, `status` and `gateId`.
+ * @param selected - Whether the node is currently selected; affects visual styling.
+ * @returns The React element that represents the gate node.
+ */
 function GateNodeComponent({ data, selected }: NodeProps) {
   const nodeData = data as unknown as GateNodeData
   const [showActions, setShowActions] = useState(false)

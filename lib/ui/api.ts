@@ -43,6 +43,13 @@ export function useRestartStep() {
   })
 }
 
+/**
+ * Creates a React Query mutation hook that approves a gate and refreshes related queries.
+ *
+ * Sends a POST to `/api/gate` with body `{ action: 'approve', gateId }`; on success it invalidates the `['status']` and `['sequence']` queries.
+ *
+ * @returns The mutation object from React Query — exposes `mutate`/`mutateAsync`, status flags and other helpers.
+ */
 export function useApproveGate() {
   const qc = useQueryClient()
   return useMutation({
@@ -52,6 +59,11 @@ export function useApproveGate() {
   })
 }
 
+/**
+ * Creates a React Query mutation that blocks a gate by its identifier.
+ *
+ * @returns A mutation object which, when executed with a `gateId`, posts `{ action: 'block', gateId }` to `/api/gate` and, on success, invalidates the `['status']` and `['sequence']` queries.
+ */
 export function useBlockGate() {
   const qc = useQueryClient()
   return useMutation({

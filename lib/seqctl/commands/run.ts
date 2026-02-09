@@ -128,7 +128,20 @@ async function executeSingleStep(
 }
 
 /**
- * Run command handler
+ * Execute a run subcommand for steps, runnable steps or groups within the current sequence.
+ *
+ * Handles three subcommands:
+ * - "step": run a specific step by ID, update process mapping and print the step result.
+ * - "runnable": run all READY steps whose dependencies are satisfied in topological order, collect executed and skipped steps.
+ * - "group": run all READY steps in a named group serially and collect results.
+ *
+ * Output is printed either as JSON when `options.json` is true, or as human-readable text. Exits the process with code 1 for missing required arguments or unknown subcommands.
+ *
+ * @param subcommand - The subcommand to run: "step", "runnable" or "group"
+ * @param args - Positional arguments for the subcommand (e.g. stepId or groupId as first element)
+ * @param options - CLI options (controls JSON output and other flags)
+ * @throws GroupNotFoundError - If a specified groupId does not exist in the sequence
+ * @throws StepNotFoundError - If a specified stepId cannot be found when attempting to run a step
  */
 export async function runCommand(
   subcommand: string | undefined,
