@@ -1,7 +1,7 @@
 import { parseArgs } from 'util'
 import { randomUUID } from 'crypto'
 import { readSequence, writeSequence } from '../../sequence/parser'
-import { StepNotFoundError, GroupNotFoundError } from '../../errors'
+import { StepNotFoundError } from '../../errors'
 import type { Step } from '../../sequence/schema'
 
 interface CLIOptions {

@@ -1,7 +1,6 @@
 import { randomUUID } from 'crypto'
 import { readSequence, writeSequence } from '../../sequence/parser'
 import { validateDAG, topologicalSort } from '../../sequence/dag'
-import { MprocsClient } from '../../mprocs/client'
 import { updateStepProcess, readMprocsMap } from '../../mprocs/state'
 import { runStep } from '../../runner/wrapper'
 import { saveRunArtifacts } from '../../runner/artifacts'
@@ -66,8 +65,7 @@ async function executeSingleStep(
   basePath: string,
   sequence: Sequence,
   stepId: string,
-  runId: string,
-  _mprocsClient: MprocsClient
+  runId: string
 ): Promise<RunStepResult> {
   const step = sequence.steps.find(s => s.id === stepId)
   if (!step) {
@@ -144,8 +142,6 @@ export async function runCommand(
   const sequence = await readSequence(basePath)
   validateDAG(sequence)
 
-  const mprocsClient = new MprocsClient()
-
   if (subcommand === 'step') {
     // Run a specific step
     const stepId = args[0]
@@ -163,8 +159,7 @@ export async function runCommand(
       basePath,
       sequence,
       stepId,
-      runId,
-      mprocsClient
+      runId
     )
 
     // Update mprocs map
@@ -216,8 +211,7 @@ export async function runCommand(
         basePath,
         sequence,
         stepId,
-        runId,
-        mprocsClient
+        runId
       )
       executed.push(result)
 
@@ -280,7 +274,7 @@ export async function runCommand(
     // Run group steps in parallel (Promise.all)
     const results = await Promise.all(
       readyGroupSteps.map(step =>
-        executeSingleStep(basePath, sequence, step.id, runId, mprocsClient)
+        executeSingleStep(basePath, sequence, step.id, runId)
       )
     )
     executed.push(...results)

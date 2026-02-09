@@ -61,7 +61,12 @@ function makeSequence(overrides?: Partial<Sequence>): Sequence {
 
 /** Extract the last JSON blob that was passed to console.log */
 function lastJsonOutput(spy: ReturnType<typeof spyOn>): Record<string, unknown> {
-  const calls = (spy as any).mock.calls
+  interface MockSpy {
+    mock: {
+      calls: Array<[string]>
+    }
+  }
+  const calls = (spy as unknown as MockSpy).mock.calls
   return JSON.parse(calls[calls.length - 1][0] as string)
 }
 

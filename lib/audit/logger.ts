@@ -80,7 +80,7 @@ export class AuditLogger {
       const content = await readFile(logPath, 'utf-8')
       const lines = content.trim().split('\n').filter(l => l.length > 0)
 
-      let entries = lines.map(line => JSON.parse(line) as AuditEntry)
+      const entries = lines.map(line => JSON.parse(line) as AuditEntry)
 
       const offset = options?.offset ?? 0
       const limit = options?.limit ?? entries.length

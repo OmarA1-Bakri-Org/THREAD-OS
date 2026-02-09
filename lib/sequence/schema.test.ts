@@ -7,7 +7,6 @@ import {
   StepStatusSchema,
   StepTypeSchema,
   ModelTypeSchema,
-  GateStatusSchema,
   FailPolicySchema,
   PolicyModeSchema,
 } from './schema'
