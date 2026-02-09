@@ -4,7 +4,7 @@ import { randomUUID } from 'crypto'
 import { readSequence, writeSequence } from '@/lib/sequence/parser'
 import { validateDAG } from '@/lib/sequence/dag'
 import { getBasePath } from '@/lib/config'
-import { jsonError, auditLog, handleError } from '@/lib/api-helpers'
+import { auditLog, handleError } from '@/lib/api-helpers'
 import { StepNotFoundError } from '@/lib/errors'
 
 const BodySchema = z.object({ action: z.literal('parallelize'), stepIds: z.array(z.string()).min(2) })

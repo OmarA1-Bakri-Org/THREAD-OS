@@ -38,7 +38,7 @@ describe('thread types integration', () => {
   })
 
   test('base template apply', async () => {
-    const { logs, restore } = captureLog()
+    const { restore, logs } = captureLog()
     await templateCommand('apply', ['base'], jsonOpts)
     restore()
 
@@ -50,7 +50,7 @@ describe('thread types integration', () => {
   })
 
   test('parallel: group parallelize', async () => {
-    const { logs, restore } = captureLog()
+    const { restore } = captureLog()
     await stepCommand('add', ['p1', '-n', 'P1', '-t', 'base', '-m', 'claude-code'], jsonOpts)
     await stepCommand('add', ['p2', '-n', 'P2', '-t', 'base', '-m', 'claude-code'], jsonOpts)
     await groupCommand('parallelize', ['p1', 'p2'], jsonOpts)
@@ -62,7 +62,7 @@ describe('thread types integration', () => {
   })
 
   test('chained: steps with gate', async () => {
-    const { logs, restore } = captureLog()
+    const { restore } = captureLog()
     await stepCommand('add', ['c1', '-n', 'C1', '-t', 'base', '-m', 'claude-code'], jsonOpts)
     await stepCommand('add', ['c2', '-n', 'C2', '-t', 'base', '-m', 'claude-code'], jsonOpts)
     await gateCommand('insert', ['review-gate', '-n', 'ReviewGate', 'c1'], jsonOpts)
@@ -76,7 +76,7 @@ describe('thread types integration', () => {
   })
 
   test('fusion: create fusion steps', async () => {
-    const { logs, restore } = captureLog()
+    const { restore } = captureLog()
     await stepCommand('add', ['cand1', '-n', 'Candidate1', '-t', 'base', '-m', 'claude-code'], jsonOpts)
     await stepCommand('add', ['cand2', '-n', 'Candidate2', '-t', 'base', '-m', 'claude-code'], jsonOpts)
     await fusionCommand('create', ['--candidates', 'cand1,cand2', '--synth', 'synth-1'], jsonOpts)

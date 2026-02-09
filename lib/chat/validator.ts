@@ -2,14 +2,11 @@ import { readSequence, writeSequence } from '../sequence/parser'
 import { PolicyEngine } from '../policy/engine'
 import * as audit from '../audit/logger'
 import YAML from 'yaml'
-import type { Sequence } from '../sequence/schema'
-import { tmpdir } from 'os'
-import { join } from 'path'
-import { mkdir, cp, rm } from 'fs/promises'
+import { StepSchema, StepTypeSchema, ModelTypeSchema, StepStatusSchema, type Sequence } from '../sequence/schema'
 
 export interface ProposedAction {
   command: string
-  args: Record<string, any>
+  args: Record<string, string | string[] | boolean | number | undefined>
 }
 
 export interface ValidationResult {
@@ -25,7 +22,7 @@ export interface DryRunResult {
 
 export interface ApplyResult {
   success: boolean
-  results: any[]
+  results: Array<{ action?: string; status?: string; error?: string }>
 }
 
 const VALID_COMMANDS = [
@@ -35,6 +32,13 @@ const VALID_COMMANDS = [
   'dep add', 'dep remove',
   'group create', 'fusion create',
 ]
+
+/** Allowed fields for step update to prevent arbitrary field injection */
+const ALLOWED_UPDATE_FIELDS = new Set([
+  'id', 'name', 'type', 'model', 'prompt_file', 'depends_on',
+  'status', 'cwd', 'group_id', 'fanout', 'fusion_candidates',
+  'fusion_synth', 'watchdog_for', 'orchestrator', 'timeout_ms', 'fail_policy',
+])
 
 export class ActionValidator {
   constructor(private basePath: string) {}
@@ -135,7 +139,7 @@ export class ActionValidator {
     }
 
     const policy = await PolicyEngine.load(this.basePath)
-    const results: any[] = []
+    const results: Array<{ action?: string; status?: string; error?: string }> = []
 
     try {
       const sequence = await readSequence(this.basePath)
@@ -162,7 +166,7 @@ export class ActionValidator {
           timestamp: new Date().toISOString(),
           actor: 'chat-orchestrator',
           action: action.command,
-          target: action.args.id || action.args.step_id || 'sequence',
+          target: String(action.args.id || action.args.step_id || 'sequence'),
           payload: action.args,
           result: 'applied',
         })
@@ -188,7 +192,7 @@ function applyAction(seq: Sequence, action: ProposedAction): string | null {
       if (seq.steps.find(s => s.id === action.args.id)) {
         return `Step ${action.args.id} already exists`
       }
-      seq.steps.push({
+      const newStep = {
         id: action.args.id,
         name: action.args.name,
         type: action.args.type || 'base',
@@ -196,7 +200,13 @@ function applyAction(seq: Sequence, action: ProposedAction): string | null {
         prompt_file: action.args.prompt_file,
         depends_on: action.args.depends_on || [],
         status: 'READY',
-      })
+      }
+      // Validate through schema to prevent invalid data
+      const parsed = StepSchema.safeParse(newStep)
+      if (!parsed.success) {
+        return `Invalid step: ${parsed.error.issues.map(i => i.message).join(', ')}`
+      }
+      seq.steps.push(parsed.data)
       return null
     }
     case 'step remove': {
@@ -212,15 +222,42 @@ function applyAction(seq: Sequence, action: ProposedAction): string | null {
     case 'step update': {
       const step = seq.steps.find(s => s.id === action.args.id)
       if (!step) return `Step ${action.args.id} not found`
-      const { id, ...updates } = action.args
-      Object.assign(step, updates)
+      const { id: _id, ...updates } = action.args
+      // Only allow known fields to be updated (prevent prototype pollution / field injection)
+      for (const key of Object.keys(updates)) {
+        if (!ALLOWED_UPDATE_FIELDS.has(key)) {
+          return `Invalid update field: ${key}`
+        }
+      }
+      // Validate enum fields if provided
+      if (updates.type !== undefined) {
+        const typeResult = StepTypeSchema.safeParse(updates.type)
+        if (!typeResult.success) return `Invalid type: ${updates.type}`
+        step.type = typeResult.data
+      }
+      if (updates.model !== undefined) {
+        const modelResult = ModelTypeSchema.safeParse(updates.model)
+        if (!modelResult.success) return `Invalid model: ${updates.model}`
+        step.model = modelResult.data
+      }
+      if (updates.status !== undefined) {
+        const statusResult = StepStatusSchema.safeParse(updates.status)
+        if (!statusResult.success) return `Invalid status: ${updates.status}`
+        step.status = statusResult.data
+      }
+      if (updates.name !== undefined) step.name = String(updates.name)
+      if (updates.prompt_file !== undefined) step.prompt_file = String(updates.prompt_file)
+      if (updates.cwd !== undefined) step.cwd = String(updates.cwd)
+      if (updates.depends_on !== undefined && Array.isArray(updates.depends_on)) {
+        step.depends_on = updates.depends_on.map(String)
+      }
       return null
     }
     case 'dep add': {
       const step = seq.steps.find(s => s.id === action.args.from)
       if (!step) return `Step ${action.args.from} not found`
-      if (!step.depends_on.includes(action.args.to)) {
-        step.depends_on.push(action.args.to)
+      if (!step.depends_on.includes(String(action.args.to))) {
+        step.depends_on.push(String(action.args.to))
       }
       return null
     }

@@ -1,11 +1,8 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
-import { readFile } from 'fs/promises'
-import { join } from 'path'
-import { createTempDir, cleanTempDir, makeSequence, makeStep, writeTestSequence } from '../helpers/setup'
+import { createTempDir, cleanTempDir } from '../helpers/setup'
 import { initCommand } from '../../lib/seqctl/commands/init'
 import { stepCommand } from '../../lib/seqctl/commands/step'
 import { depCommand } from '../../lib/seqctl/commands/dep'
-import { statusCommand } from '../../lib/seqctl/commands/status'
 import { runCommand } from '../../lib/seqctl/commands/run'
 import { readSequence, writeSequence } from '../../lib/sequence/parser'
 
@@ -86,7 +83,7 @@ describe('CLI lifecycle integration', () => {
 
     // Suppress process.exit
     const origExit = process.exit
-    process.exit = (() => { throw new Error('exit') }) as any
+    process.exit = (() => { throw new Error('exit') }) as never
 
     try {
       await runCommand('step', ['echo-test'], jsonOpts)

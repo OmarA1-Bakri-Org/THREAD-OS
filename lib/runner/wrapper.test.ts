@@ -7,7 +7,8 @@ describe('runStep', () => {
     const result = await runStep({
       stepId: 'test-step',
       runId: 'run-1',
-      command: 'echo hello',
+      command: 'echo',
+      args: ['hello'],
     })
     expect(result.status).toBe('SUCCESS')
     expect(result.exitCode).toBe(0)
@@ -23,7 +24,8 @@ describe('runStep', () => {
     const result = await runStep({
       stepId: 'fail-step',
       runId: 'run-2',
-      command: 'sh -c "exit 1"',
+      command: 'sh',
+      args: ['-c', 'exit 1'],
     })
     expect(result.status).toBe('FAILED')
     expect(result.exitCode).toBe(1)
@@ -33,7 +35,8 @@ describe('runStep', () => {
     const result = await runStep({
       stepId: 'stderr-step',
       runId: 'run-3',
-      command: 'sh -c "echo error >&2"',
+      command: 'sh',
+      args: ['-c', 'echo error >&2'],
     })
     expect(result.stderr.trim()).toBe('error')
   })
@@ -43,28 +46,30 @@ describe('runStep', () => {
       runStep({
         stepId: 'timeout-step',
         runId: 'run-4',
-        command: 'sleep 60',
+        command: 'sleep',
+        args: ['60'],
         timeout: 100,
       })
     ).rejects.toThrow(ProcessTimeoutError)
   })
 
-  test('nonexistent command returns FAILED via shell', async () => {
-    // shell: true means the shell returns 127 for not found
+  test('nonexistent command returns ERROR', async () => {
+    // shell: false means spawn emits an error event for not-found commands
     const result = await runStep({
       stepId: 'bad-cmd',
       runId: 'run-5',
       command: 'nonexistent_command_xyz',
     })
-    expect(result.status).toBe('FAILED')
-    expect(result.exitCode).toBe(127)
+    expect(result.status).toBe('ERROR')
+    expect(result.exitCode).toBe(null)
   })
 
   test('custom env vars', async () => {
     const result = await runStep({
       stepId: 'env-step',
       runId: 'run-6',
-      command: 'echo $MY_VAR',
+      command: 'sh',
+      args: ['-c', 'echo $MY_VAR'],
       env: { MY_VAR: 'test-value' },
     })
     expect(result.stdout.trim()).toBe('test-value')

@@ -4,7 +4,6 @@ import { writeSequence, readSequence } from '../sequence/parser'
 import { mkdir, rm } from 'fs/promises'
 import { join } from 'path'
 import { tmpdir } from 'os'
-import type { Sequence } from '../sequence/schema'
 
 let testDir: string
 

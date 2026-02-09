@@ -35,13 +35,13 @@ describe('StepSchema', () => {
   })
 
   test('rejects missing name', () => {
-    const { name, ...noName } = validStep
+    const { name: _name, ...noName } = validStep
     const result = StepSchema.safeParse(noName)
     expect(result.success).toBe(false)
   })
 
   test('rejects missing prompt_file', () => {
-    const { prompt_file, ...noPF } = validStep
+    const { prompt_file: _pf, ...noPF } = validStep
     const result = StepSchema.safeParse(noPF)
     expect(result.success).toBe(false)
   })
