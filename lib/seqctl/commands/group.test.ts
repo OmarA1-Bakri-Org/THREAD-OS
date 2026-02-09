@@ -58,13 +58,10 @@ function makeSequence(): Sequence {
 }
 
 function lastJsonOutput(spy: ReturnType<typeof spyOn>): Record<string, unknown> {
-  interface MockSpy {
-    mock: {
-      calls: Array<[string]>
-    }
-  }
-  const calls = (spy as unknown as MockSpy).mock.calls
-  return JSON.parse(calls[calls.length - 1][0] as string)
+  const calls = spy.mock.calls as unknown[][]
+  const lastCall = calls[calls.length - 1]
+  const parsed: unknown = JSON.parse(String(lastCall[0]))
+  return parsed as Record<string, unknown>
 }
 
 /* ------------------------------------------------------------------ */

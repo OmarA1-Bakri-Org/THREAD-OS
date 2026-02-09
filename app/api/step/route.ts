@@ -175,13 +175,20 @@ async function handleRm(body: z.infer<typeof RmStepBodySchema>) {
     )
   }
 
-  const dependents = sequence.steps.filter((s) =>
+  const stepDependents = sequence.steps.filter((s) =>
     s.depends_on.includes(body.stepId)
   )
-  if (dependents.length > 0) {
+  const gateDependents = (sequence.gates || []).filter((g) =>
+    g.depends_on?.includes(body.stepId)
+  )
+  const allDependentIds = [
+    ...stepDependents.map((s) => s.id),
+    ...gateDependents.map((g) => g.id),
+  ]
+  if (allDependentIds.length > 0) {
     return NextResponse.json(
       {
-        error: `Cannot remove: steps [${dependents.map((s) => s.id).join(', ')}] depend on '${body.stepId}'`,
+        error: `Cannot remove: [${allDependentIds.join(', ')}] depend on '${body.stepId}'`,
       },
       { status: 400 }
     )

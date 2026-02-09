@@ -1,5 +1,5 @@
 'use client'
-import { useCallback, useMemo } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 import {
   ReactFlow,
   Controls,
@@ -196,7 +196,7 @@ export function SequenceCanvas() {
   const [edges, setEdges, onEdgesChange] = useEdgesState(layoutEdges)
 
   // Sync layout when data changes
-  useMemo(() => {
+  useEffect(() => {
     setNodes(layoutNodes)
     setEdges(layoutEdges)
   }, [layoutNodes, layoutEdges, setNodes, setEdges])

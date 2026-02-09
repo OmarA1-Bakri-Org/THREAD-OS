@@ -34,8 +34,8 @@ const commands: Record<string, CommandHandler> = {
   group: groupCommand,
   fusion: fusionCommand,
   run: runCommand,
-  stop: (_sub, args, opts) => controlCommand('stop', args, opts),
-  restart: (_sub, args, opts) => controlCommand('restart', args, opts),
+  stop: (sub, args, opts) => controlCommand('stop', sub ? [sub, ...args] : args, opts),
+  restart: (sub, args, opts) => controlCommand('restart', sub ? [sub, ...args] : args, opts),
   status: statusCommand,
   mprocs: mprocsCmdCommand,
 }

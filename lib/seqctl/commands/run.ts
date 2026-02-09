@@ -271,13 +271,11 @@ export async function runCommand(
     const readyGroupSteps = groupSteps.filter(s => s.status === 'READY')
     const executed: RunStepResult[] = []
 
-    // Run group steps in parallel (Promise.all)
-    const results = await Promise.all(
-      readyGroupSteps.map(step =>
-        executeSingleStep(basePath, sequence, step.id, runId)
-      )
-    )
-    executed.push(...results)
+    // Run group steps serially to avoid concurrent writes
+    for (const step of readyGroupSteps) {
+      const result = await executeSingleStep(basePath, sequence, step.id, runId)
+      executed.push(result)
+    }
 
     const result: RunRunnableResult = {
       success: executed.every(e => e.success),

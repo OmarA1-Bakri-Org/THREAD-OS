@@ -1,5 +1,5 @@
 import { readFile } from 'fs/promises'
-import { join } from 'path'
+import { join, resolve, relative, sep } from 'path'
 import YAML from 'yaml'
 import { PolicyFileSchema, type PolicyFile } from './schema'
 import type { PolicyMode } from '../sequence/schema'
@@ -90,9 +90,12 @@ export class PolicyEngine {
 
     // Check CWD restriction
     if (action.cwd && this.policy.allowed_cwd.length > 0) {
+      const cwdResolved = resolve(this.basePath, action.cwd)
       const isAllowed = this.policy.allowed_cwd.some(pattern => {
         if (pattern === './**') return true
-        return action.cwd!.startsWith(pattern.replace('/**', ''))
+        const root = resolve(this.basePath, pattern.replace(/\/\*\*$/, ''))
+        const rel = relative(root, cwdResolved)
+        return rel === '' || (!rel.startsWith('..' + sep) && rel !== '..')
       })
       if (!isAllowed) {
         return {

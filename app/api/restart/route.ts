@@ -61,7 +61,17 @@ export async function POST(request: Request) {
     }
 
     const mprocsClient = new MprocsClient()
-    await mprocsClient.restartProcess(processIndex)
+    
+    try {
+      await mprocsClient.restartProcess(processIndex)
+    } catch (error) {
+      return NextResponse.json(
+        {
+          error: `Failed to restart process: ${error instanceof Error ? error.message : String(error)}`,
+        },
+        { status: 500 }
+      )
+    }
 
     step.status = 'RUNNING'
     await writeSequence(basePath, sequence)
