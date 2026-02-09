@@ -4,7 +4,7 @@ import { AuditEntrySchema, type AuditEntry, type AuditReadOptions } from './sche
 
 const AUDIT_LOG_PATH = '.threados/audit.log'
 
-const SECRET_PATTERN = /(password|secret|token|key|api[_-]?key|auth|credentials|private[_-]?key|access[_-]?token|bearer)\s*[=:]\s*\S+/gi
+const SECRET_PATTERN = /\b(password|secret|token|key|api[_-]?key|auth|credentials|private[_-]?key|access[_-]?token|bearer)\s*[=:]\s*\S+/gi
 
 /**
  * Redact secrets from a string
