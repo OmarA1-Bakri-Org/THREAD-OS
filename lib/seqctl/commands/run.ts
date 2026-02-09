@@ -289,12 +289,11 @@ export async function runCommand(
     })
 
     const executed: RunStepResult[] = []
-    // Run all in parallel
-    const promises = runnableInGroup.map(s =>
-      executeSingleStep(basePath, sequence, s.id, runId, mprocsClient)
-    )
-    const results = await Promise.all(promises)
-    executed.push(...results)
+    // Run serially to avoid concurrent writes to sequence.yaml
+    for (const s of runnableInGroup) {
+      const result = await executeSingleStep(basePath, sequence, s.id, runId, mprocsClient)
+      executed.push(result)
+    }
 
     const result: RunRunnableResult = {
       success: executed.every(e => e.success),
