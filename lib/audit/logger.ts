@@ -4,15 +4,15 @@ import { AuditEntrySchema, type AuditEntry, type AuditReadOptions } from './sche
 
 const AUDIT_LOG_PATH = '.threados/audit.log'
 
-const SECRET_PATTERN = /(password|secret|token|key)=\S+/gi
+const SECRET_PATTERN = /(password|secret|token|key|api[_-]?key|auth|credentials|private[_-]?key|access[_-]?token|bearer)\s*[=:]\s*\S+/gi
 
 /**
  * Redact secrets from a string
  */
 export function redactSecrets(input: string): string {
   return input.replace(SECRET_PATTERN, (match) => {
-    const eqIndex = match.indexOf('=')
-    return match.substring(0, eqIndex + 1) + '[REDACTED]'
+    const sepIndex = match.search(/[=:]/)
+    return match.substring(0, sepIndex + 1) + '[REDACTED]'
   })
 }
 

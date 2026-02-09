@@ -33,7 +33,7 @@ export async function templateCommand(
   }
 
   const templateType = args[0]
-  if (!templateType || !TEMPLATE_TYPES.includes(templateType as any)) {
+  if (!templateType || !TEMPLATE_TYPES.includes(templateType as typeof TEMPLATE_TYPES[number])) {
     const error = new InvalidTemplateError(templateType || '(none)').message + `. Available: ${TEMPLATE_TYPES.join(', ')}`
     if (options.json) { console.log(JSON.stringify({ success: false, error })) } else { console.error(error) }
     process.exit(1)

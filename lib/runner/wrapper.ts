@@ -1,4 +1,4 @@
-import { spawn } from 'child_process'
+import { spawn, type ChildProcess } from 'child_process'
 import { ProcessTimeoutError } from '../errors'
 
 export interface RunnerConfig {
@@ -27,6 +27,23 @@ export interface RunResult {
 
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000 // 30 minutes
 
+/** Environment variables safe to pass to child processes */
+const SAFE_ENV_KEYS = new Set([
+  'PATH', 'HOME', 'USER', 'SHELL', 'LANG', 'LC_ALL', 'LC_CTYPE',
+  'TERM', 'TMPDIR', 'TMP', 'TEMP', 'NODE_ENV', 'BUN_INSTALL',
+  'THREADOS_BASE_PATH', 'THREADOS_MPROCS_PATH',
+])
+
+function getSafeEnv(extra: Record<string, string>): NodeJS.ProcessEnv {
+  const safe: Record<string, string> = {}
+  for (const key of Object.keys(process.env)) {
+    if (SAFE_ENV_KEYS.has(key) || key.startsWith('THREADOS_')) {
+      safe[key] = process.env[key]!
+    }
+  }
+  return { ...safe, ...extra } as NodeJS.ProcessEnv
+}
+
 /**
  * Execute a step command with stdout/stderr capture and timeout handling
  *
@@ -52,10 +69,10 @@ export async function runStep(config: RunnerConfig): Promise<RunResult> {
   let timedOut = false
 
   return new Promise((resolve, reject) => {
-    const proc = spawn(command, args, {
+    const proc: ChildProcess = spawn(command, args, {
       cwd,
-      shell: true,
-      env: { ...process.env, ...env },
+      shell: false,
+      env: getSafeEnv(env),
     })
 
     // Set up timeout

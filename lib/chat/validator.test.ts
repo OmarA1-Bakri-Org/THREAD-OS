@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from 'bun:test'
-import { ActionValidator, type ProposedAction } from './validator'
+import { ActionValidator } from './validator'
 import { writeSequence } from '../sequence/parser'
 import { mkdir, rm } from 'fs/promises'
 import { join } from 'path'

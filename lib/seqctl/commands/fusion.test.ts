@@ -46,7 +46,7 @@ describe('fusion create', () => {
     const origLog = console.log
     console.log = (msg: string) => logs.push(msg)
     const origExit = process.exit
-    process.exit = (() => { throw new Error('exit') }) as any
+    process.exit = (() => { throw new Error('exit') }) as never
     try {
       await fusionCommand('create', ['--candidates', 'a', '--synth', 's'], jsonOpts)
     } catch {}

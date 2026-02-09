@@ -63,7 +63,6 @@ export function useSequenceGraph(status: SequenceStatus | undefined, searchQuery
     })
 
     const edges: Edge[] = g.edges().map(e => {
-      const target = stepMap.get(e.w) || gateMap.get(e.w)
       const sourceStatus = stepMap.get(e.v)?.status || gateMap.get(e.v)?.status || 'READY'
       const color = STATUS_COLORS[sourceStatus] || '#94a3b8'
       return { id: `${e.v}->${e.w}`, source: e.v, target: e.w, type: 'depEdge', style: { stroke: color, strokeWidth: 2 }, animated: sourceStatus === 'RUNNING' }

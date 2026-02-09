@@ -29,6 +29,9 @@ export async function checkPolicy(type: 'run_command' | 'fanout' | 'concurrent',
   if (!result.allowed) {
     return result.reason || 'Policy denied'
   }
+  if (result.confirmation_required) {
+    return null // In API context, confirmation is handled by the UI
+  }
   return null
 }
 
@@ -40,5 +43,9 @@ export function handleError(err: unknown) {
   if (message.includes('not found') || message.includes('ENOENT')) {
     return jsonError(message, 'NOT_FOUND', 404)
   }
-  return jsonError(message, 'INTERNAL_ERROR', 500)
+  // Avoid leaking internal error details to client in production
+  const safeMessage = process.env.NODE_ENV === 'production'
+    ? 'Internal server error'
+    : message
+  return jsonError(safeMessage, 'INTERNAL_ERROR', 500)
 }

@@ -6,7 +6,7 @@ import { getBasePath } from '@/lib/config'
 import { jsonError, auditLog, handleError } from '@/lib/api-helpers'
 import { StepNotFoundError } from '@/lib/errors'
 import { writePrompt, deletePrompt, validatePromptExists } from '@/lib/prompts/manager'
-import { StepSchema, type Step, type StepType, type ModelType, type StepStatus } from '@/lib/sequence/schema'
+import { StepSchema, StepTypeSchema, ModelTypeSchema, StepStatusSchema, type Step } from '@/lib/sequence/schema'
 
 const AddSchema = z.object({
   action: z.literal('add'),
@@ -44,14 +44,14 @@ export async function POST(request: Request) {
 
     if (body.action === 'add') {
       if (seq.steps.some(s => s.id === body.stepId)) return jsonError(`Step '${body.stepId}' already exists`, 'CONFLICT', 409)
-      const newStep: Step = {
+      const newStep = {
         id: body.stepId,
         name: body.name || body.stepId,
-        type: (body.type || 'base') as StepType,
-        model: (body.model || 'claude-code') as ModelType,
+        type: body.type || 'base',
+        model: body.model || 'claude-code',
         prompt_file: body.prompt || `.threados/prompts/${body.stepId}.md`,
         depends_on: body.dependsOn || [],
-        status: 'READY',
+        status: 'READY' as const,
         cwd: body.cwd,
       }
       const v = StepSchema.safeParse(newStep)
@@ -60,7 +60,7 @@ export async function POST(request: Request) {
       validateDAG(seq)
       await writeSequence(bp, seq)
       if (!(await validatePromptExists(bp, body.stepId))) {
-        await writePrompt(bp, body.stepId, `# ${newStep.name}\n\n<!-- Add your prompt here -->\n`)
+        await writePrompt(bp, body.stepId, `# ${v.data.name}\n\n<!-- Add your prompt here -->\n`)
       }
       await auditLog('step.add', body.stepId)
       return NextResponse.json({ success: true, action: 'add', stepId: body.stepId })
@@ -70,10 +70,22 @@ export async function POST(request: Request) {
       const step = seq.steps.find(s => s.id === body.stepId)
       if (!step) throw new StepNotFoundError(body.stepId)
       if (body.name) step.name = body.name
-      if (body.type) step.type = body.type as StepType
-      if (body.model) step.model = body.model as ModelType
+      if (body.type) {
+        const parsed = StepTypeSchema.safeParse(body.type)
+        if (!parsed.success) return jsonError(`Invalid step type: ${body.type}`, 'VALIDATION_ERROR', 400)
+        step.type = parsed.data
+      }
+      if (body.model) {
+        const parsed = ModelTypeSchema.safeParse(body.model)
+        if (!parsed.success) return jsonError(`Invalid model: ${body.model}`, 'VALIDATION_ERROR', 400)
+        step.model = parsed.data
+      }
       if (body.prompt) step.prompt_file = body.prompt
-      if (body.status) step.status = body.status as StepStatus
+      if (body.status) {
+        const parsed = StepStatusSchema.safeParse(body.status)
+        if (!parsed.success) return jsonError(`Invalid status: ${body.status}`, 'VALIDATION_ERROR', 400)
+        step.status = parsed.data
+      }
       if (body.dependsOn) step.depends_on = body.dependsOn
       if (body.cwd) step.cwd = body.cwd
       validateDAG(seq)

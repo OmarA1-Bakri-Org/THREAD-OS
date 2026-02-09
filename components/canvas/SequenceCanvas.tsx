@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useCallback } from 'react'
+import { useEffect } from 'react'
 import { ReactFlow, MiniMap, Controls, Background, useReactFlow } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { useStatus } from '@/lib/ui/api'

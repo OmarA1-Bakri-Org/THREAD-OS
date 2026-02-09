@@ -67,7 +67,7 @@ async function executeSingleStep(
   sequence: Sequence,
   stepId: string,
   runId: string,
-  _mprocsClient: MprocsClient
+  _client: MprocsClient
 ): Promise<RunStepResult> {
   const step = sequence.steps.find(s => s.id === stepId)
   if (!step) {

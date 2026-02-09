@@ -1,7 +1,6 @@
 import { readSequence, writeSequence } from '../sequence/parser'
 import { MprocsClient } from '../mprocs/client'
 import * as audit from '../audit/logger'
-import type { Step } from '../sequence/schema'
 
 export interface ReconciliationChange {
   stepId: string
