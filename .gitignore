@@ -39,3 +39,15 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+# ThreadOS runtime artifacts (not committed)
+.threados/runs/
+.threados/state/
+
+# Vendored binaries (not committed)
+vendor/
+
+# Claude Code local config
+.claude/
+
+# Windows artifacts
+nul
