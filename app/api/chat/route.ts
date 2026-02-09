@@ -12,6 +12,7 @@ import { AuditLogger } from '@/lib/audit/logger'
 const ChatRequestSchema = z.object({
   message: z.string().min(1),
   mode: z.enum(['plan', 'execute']).default('plan'),
+  policyMode: z.enum(['SAFE', 'POWER']).default('SAFE'),
 })
 
 const ApplyActionsSchema = z.object({
@@ -22,6 +23,7 @@ const ApplyActionsSchema = z.object({
     destructive: z.boolean().default(false),
     reversible: z.boolean().default(true),
   })),
+  policyMode: z.enum(['SAFE', 'POWER']).default('SAFE'),
 })
 
 export async function POST(request: Request) {
@@ -37,7 +39,8 @@ export async function POST(request: Request) {
 
     const basePath = process.cwd()
     const sequence = await readSequence(basePath)
-    const systemPrompt = generateSystemPrompt(sequence, 'SAFE')
+    const { policyMode } = parsed.data
+    const systemPrompt = generateSystemPrompt(sequence, policyMode)
     const logger = new AuditLogger(basePath)
 
     await logger.log({
@@ -45,7 +48,7 @@ export async function POST(request: Request) {
       actor: 'user',
       target: 'sequence',
       payload: { message: parsed.data.message, mode: parsed.data.mode },
-      policy_mode: 'SAFE',
+      policy_mode: policyMode,
       result: 'success',
     })
 
@@ -92,8 +95,9 @@ export async function PUT(request: Request) {
     const basePath = process.cwd()
     const logger = new AuditLogger(basePath)
     const actions: ProposedAction[] = parsed.data.actions
+    const { policyMode } = parsed.data
 
-    const validation = validateActions(actions)
+    const validation = validateActions(actions, policyMode)
     if (!validation.valid) {
       return NextResponse.json({
         success: false,
@@ -102,7 +106,7 @@ export async function PUT(request: Request) {
       }, { status: 400 })
     }
 
-    const dryRun = await dryRunActions(basePath, actions)
+    const dryRun = await dryRunActions(basePath, actions, policyMode)
     if (!dryRun.success) {
       return NextResponse.json({
         success: false,
@@ -120,7 +124,7 @@ export async function PUT(request: Request) {
         actions: actions.map(a => ({ id: a.id, command: a.command })),
         dryRunDiff: dryRun.sequenceDiff,
       },
-      policy_mode: 'SAFE',
+      policy_mode: policyMode,
       result: 'success',
     })
 

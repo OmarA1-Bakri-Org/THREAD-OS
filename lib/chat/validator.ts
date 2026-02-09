@@ -49,13 +49,15 @@ const VALID_COMMANDS = [
 /**
  * Validate that proposed actions are syntactically valid seqctl commands
  */
-export function validateActions(actions: ProposedAction[]): ValidationResult {
+export function validateActions(actions: ProposedAction[], policyMode?: string): ValidationResult {
   const errors: Array<{ actionId: string; error: string }> = []
 
   for (const action of actions) {
     const cmd = action.command.replace(/^seqctl\s+/, '')
-
-    const isValid = VALID_COMMANDS.some(valid => cmd.startsWith(valid))
+    const tokens = cmd.split(/\s+/)
+    // Normalize to "command subcommand" or single-word commands like "stop", "restart"
+    const normalized = tokens.slice(0, 2).join(' ')
+    const isValid = VALID_COMMANDS.some(valid => normalized === valid || tokens[0] === valid)
     if (!isValid) {
       errors.push({
         actionId: action.id,
@@ -76,7 +78,8 @@ export function validateActions(actions: ProposedAction[]): ValidationResult {
  */
 export async function dryRunActions(
   basePath: string,
-  actions: ProposedAction[]
+  actions: ProposedAction[],
+  policyMode?: string
 ): Promise<DryRunResult> {
   const errors: Array<{ actionId: string; error: string }> = []
 
@@ -85,7 +88,7 @@ export async function dryRunActions(
 
     // For dry-run we just validate the commands parse correctly
     // and compute what the sequence would look like after applying them
-    const validation = validateActions(actions)
+    const validation = validateActions(actions, policyMode)
     if (!validation.valid) {
       return {
         success: false,
@@ -93,7 +96,7 @@ export async function dryRunActions(
       }
     }
 
-    // Simple diff: show before YAML (actual execution would modify and show after)
+    // Summary diff: describe the current state and proposed changes
     return {
       success: true,
       sequenceDiff: `--- Current sequence has ${beforeSequence.steps.length} steps, ${beforeSequence.gates.length} gates\n+++ ${actions.length} action(s) proposed`,

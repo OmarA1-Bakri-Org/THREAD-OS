@@ -1,7 +1,11 @@
 import type { TemplateResult, TemplateOptions } from './index'
 
 export function generateFusionTemplate(options: TemplateOptions & { candidateModels?: Array<'claude-code' | 'codex' | 'gemini'> }): TemplateResult {
-  const { baseName, model = 'claude-code', cwd, candidateModels = ['claude-code', 'codex', 'gemini'] } = options
+  const { baseName, model = 'claude-code', cwd, candidateModels: rawCandidates = ['claude-code', 'codex', 'gemini'] } = options
+  const candidateModels = Array.from(new Set(rawCandidates))
+  if (candidateModels.length === 0) {
+    throw new Error('candidateModels must contain at least one model')
+  }
   const steps = []
   const candidateIds: string[] = []
 

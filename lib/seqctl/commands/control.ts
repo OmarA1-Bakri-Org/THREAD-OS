@@ -59,7 +59,16 @@ async function stopStep(
     }
   }
 
-  await mprocsClient.stopProcess(processIndex)
+  try {
+    await mprocsClient.stopProcess(processIndex)
+  } catch (error) {
+    return {
+      success: false,
+      action: 'stop',
+      stepId,
+      error: `Failed to stop process: ${error instanceof Error ? error.message : String(error)}`,
+    }
+  }
 
   step.status = 'FAILED'
   await writeSequence(basePath, sequence)
@@ -114,7 +123,16 @@ async function restartStep(
     }
   }
 
-  await mprocsClient.restartProcess(processIndex)
+  try {
+    await mprocsClient.restartProcess(processIndex)
+  } catch (error) {
+    return {
+      success: false,
+      action: 'restart',
+      stepId,
+      error: `Failed to restart process: ${error instanceof Error ? error.message : String(error)}`,
+    }
+  }
 
   step.status = 'RUNNING'
   await writeSequence(basePath, sequence)

@@ -51,3 +51,12 @@ export function useApproveGate() {
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['status'] }); qc.invalidateQueries({ queryKey: ['sequence'] }) },
   })
 }
+
+export function useBlockGate() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (gateId: string) =>
+      fetch('/api/gate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'block', gateId }) }).then(r => r.json()),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['status'] }); qc.invalidateQueries({ queryKey: ['sequence'] }) },
+  })
+}

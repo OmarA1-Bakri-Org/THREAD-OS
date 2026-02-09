@@ -3,7 +3,7 @@ import { memo, useState } from 'react'
 import { Handle, Position, type NodeProps } from '@xyflow/react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
-import { useApproveGate } from '@/lib/ui/api'
+import { useApproveGate, useBlockGate } from '@/lib/ui/api'
 
 interface GateNodeData {
   label: string
@@ -16,6 +16,7 @@ function GateNodeComponent({ data, selected }: NodeProps) {
   const nodeData = data as unknown as GateNodeData
   const [showActions, setShowActions] = useState(false)
   const approve = useApproveGate()
+  const block = useBlockGate()
 
   const isPending = nodeData.status === 'PENDING' || nodeData.status === 'NEEDS_REVIEW'
   const isApproved = nodeData.status === 'APPROVED' || nodeData.status === 'DONE'
@@ -80,6 +81,7 @@ function GateNodeComponent({ data, selected }: NodeProps) {
               className="h-6 text-[10px] px-2"
               onClick={(e) => {
                 e.stopPropagation()
+                block.mutate(nodeData.gateId)
                 setShowActions(false)
               }}
             >
