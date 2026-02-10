@@ -9,8 +9,9 @@ gates: []
 
 export async function register() {
   if (process.env.NEXT_RUNTIME === 'nodejs') {
-    const { mkdir, access, writeFile } = await import('fs/promises')
+    const { mkdir, readFile, writeFile } = await import('fs/promises')
     const { join } = await import('path')
+    const YAML = await import('yaml')
 
     const basePath = process.env.THREADOS_BASE_PATH || process.cwd()
     const threadosPath = join(basePath, THREADOS_DIR)
@@ -22,9 +23,20 @@ export async function register() {
       }
 
       const seqPath = join(threadosPath, 'sequence.yaml')
+      let needsWrite = false
+
       try {
-        await access(seqPath)
+        const content = await readFile(seqPath, 'utf-8')
+        const parsed = YAML.parse(content)
+        // Validate minimum required fields
+        if (!parsed || !parsed.name || typeof parsed.name !== 'string' || parsed.name.trim() === '') {
+          needsWrite = true
+        }
       } catch {
+        needsWrite = true
+      }
+
+      if (needsWrite) {
         await writeFile(seqPath, DEFAULT_SEQUENCE, 'utf-8')
       }
     } catch (err) {
