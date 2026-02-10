@@ -1,16 +1,32 @@
 # ThreadOS
 
-**AI Agent Sequence Orchestrator** — Manage multi-agent workflows with dependency graphs, policy enforcement, and a visual UI.
+**AI Agent Sequence Orchestrator** — Define multi-agent workflows as DAGs, enforce safety policies, and orchestrate execution through a visual canvas UI and CLI.
 
-ThreadOS lets you define sequences of AI agent steps, wire them with dependencies, enforce safety policies, and monitor execution through a horizontal canvas UI.
+ThreadOS lets you define sequences of AI agent steps, wire them with dependencies, enforce safety policies (SAFE/POWER modes), and monitor execution through a horizontal canvas UI or the `seqctl` CLI.
+
+## Tech Stack
+
+- **Framework:** Next.js 16, React 19
+- **Graph Visualization:** @xyflow/react, dagre
+- **State Management:** Zustand, TanStack React Query
+- **Styling:** Tailwind CSS 4, shadcn/ui, lucide-react
+- **Validation:** Zod 4
+- **Process Management:** mprocs (external)
+- **CLI Runtime:** Bun
 
 ## Installation
 
 ```bash
+# Using npm
+npm install
+
+# Or using bun
 bun install
 ```
 
 ## Quick Start
+
+### CLI
 
 ```bash
 # Initialize a new sequence
@@ -30,24 +46,86 @@ bunx seqctl run
 bunx seqctl status
 ```
 
-## Architecture
+### Web UI
 
-```
-ThreadOS
-├── lib/seqctl/        # CLI commands
-├── lib/sequence/      # Schema, parser, DAG
-├── lib/mprocs/        # Process manager adapter
-├── lib/runner/        # Step execution wrapper
-├── lib/policy/        # Safety policy engine
-├── lib/audit/         # Audit logging
-├── lib/chat/          # Chat orchestrator (system prompt, validator)
-├── lib/reconciliation/# State reconciliation
-├── app/               # Next.js UI + API routes
-├── components/        # React components (canvas, inspector, chat)
-└── docs/              # Extended documentation
+```bash
+# Development
+npm run dev
+
+# Production
+npm run build
+npm run start
 ```
 
-### Thread Types
+Opens the horizontal canvas UI at `http://localhost:3000` with:
+- **Sequence Canvas** — Visual DAG of steps and dependencies
+- **Step Inspector** — Edit step properties and metadata
+- **Chat Panel** — AI-assisted sequence management (SSE streaming)
+- **Toolbar** — Run, stop, and status controls
+
+## Deployment (Railway)
+
+The app is configured for Railway out of the box.
+
+**What's set up:**
+- `output: 'standalone'` in `next.config.ts` for optimized container builds
+- Start script binds to `0.0.0.0` on the Railway-provided `PORT`
+- `instrumentation.ts` auto-creates the `.threados/` directory on server startup
+
+**Environment Variables:**
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `PORT` | No | `3000` | Server port (set automatically by Railway) |
+| `THREADOS_BASE_PATH` | No | `process.cwd()` | Base path for `.threados/` directory |
+| `ANTHROPIC_API_KEY` | No | — | Enables AI chat features |
+| `THREADOS_MPROCS_PATH` | No | `mprocs` | Path to mprocs binary (local execution only) |
+| `NODE_ENV` | No | — | Set to `production` for production error handling |
+
+**Deploy steps:**
+1. Connect your repo to Railway
+2. Railway auto-detects the Next.js app and runs `npm run build` then `npm run start`
+3. Optionally set `ANTHROPIC_API_KEY` in Railway variables to enable the chat panel
+
+## API Routes
+
+All routes are under `/api/` and return JSON.
+
+| Endpoint | Methods | Description |
+|----------|---------|-------------|
+| `/api/sequence` | GET | Fetch the full sequence definition |
+| `/api/step` | POST | Add, edit, remove, or clone steps |
+| `/api/dep` | POST | Add or remove step dependencies |
+| `/api/gate` | GET, POST | List gates; insert, approve, or block gates |
+| `/api/group` | GET, POST | List groups; parallelize steps into groups |
+| `/api/fusion` | POST | Create fusion patterns (candidates + synthesis) |
+| `/api/run` | POST | Execute a step, group, or all runnable steps |
+| `/api/stop` | POST | Stop a running step |
+| `/api/restart` | POST | Restart a failed/stopped step |
+| `/api/status` | GET | Step counts by state |
+| `/api/audit` | GET | Paginated audit log entries |
+| `/api/chat` | POST | SSE stream for AI chat interactions |
+| `/api/apply` | POST | Validate and apply proposed actions to the sequence |
+
+## CLI Reference
+
+See [docs/cli-reference.md](docs/cli-reference.md) for the complete command reference.
+
+| Command | Subcommands | Description |
+|---------|-------------|-------------|
+| `seqctl init` | — | Initialize `.threados/` directory |
+| `seqctl step` | add, edit, rm, clone | Manage steps |
+| `seqctl dep` | add, rm | Manage dependencies |
+| `seqctl gate` | insert, approve, block, list | Manage approval gates |
+| `seqctl group` | parallelize, list | Group steps for parallel execution |
+| `seqctl fusion` | create | Create fusion patterns |
+| `seqctl run` | step, runnable, group | Execute steps |
+| `seqctl status` | — | View sequence state (supports `--watch`) |
+| `seqctl control` | stop, restart | Control running processes |
+| `seqctl template` | apply | Apply predefined thread templates |
+| `seqctl mprocs` | open, select | Launch mprocs UI |
+
+## Thread Types
 
 | Type | Name | Description |
 |------|------|-------------|
@@ -58,41 +136,54 @@ ThreadOS
 | `b` | Baton | Hand-off between agents |
 | `l` | Long-autonomy | Extended autonomous operation |
 
-## CLI Reference
+## Architecture
 
-See [docs/cli-reference.md](docs/cli-reference.md) for the complete command reference.
-
-Key commands:
-- `seqctl init <name>` — Initialize a sequence
-- `seqctl step add|remove|update` — Manage steps
-- `seqctl dep add|remove` — Manage dependencies
-- `seqctl gate approve|block` — Control gates
-- `seqctl run` — Execute the sequence
-- `seqctl status` — View current state
-
-## UI
-
-```bash
-bun dev
 ```
-
-Opens the horizontal canvas UI at `http://localhost:3000` with:
-- **Sequence Canvas** — Visual DAG of steps and dependencies
-- **Step Inspector** — Edit step properties
-- **Chat Panel** — AI-assisted sequence management
-- **Toolbar** — Run, stop, status controls
-
-## Documentation
-
-- [CLI Reference](docs/cli-reference.md)
-- [Thread Types Guide](docs/thread-types.md)
-- [Policy Configuration](docs/policy.md)
+ThreadOS
+├── app/                  # Next.js pages + 13 API routes
+├── components/
+│   ├── canvas/           # SequenceCanvas, StepNode, GateNode, DependencyEdge
+│   ├── inspector/        # StepInspector, StepForm, StepActions
+│   ├── chat/             # ChatPanel, ChatInput, MessageBubble, ActionCard, DiffPreview
+│   ├── toolbar/          # Toolbar (run, stop, status)
+│   └── ui/               # shadcn/ui primitives (button, card, input, etc.)
+├── lib/
+│   ├── seqctl/           # CLI commands (11 command groups)
+│   ├── sequence/         # Zod schema, YAML parser, DAG validation
+│   ├── mprocs/           # mprocs adapter (client, config, state mapping)
+│   ├── runner/           # Step execution wrapper, artifact collection
+│   ├── policy/           # Safety policy engine (SAFE/POWER modes)
+│   ├── audit/            # Append-only JSONL audit logging
+│   ├── chat/             # Chat validator, system prompt builder
+│   ├── templates/        # Thread type templates (base/p/c/f/b/l)
+│   ├── reconciliation/   # State reconciliation for crashed processes
+│   ├── prompts/          # Prompt file manager
+│   ├── fs/               # Atomic file writes
+│   └── ui/               # Zustand store, providers
+├── test/                 # Unit + integration tests (Bun test runner)
+├── docs/                 # CLI reference, thread types, policy guide
+└── instrumentation.ts    # Server startup (.threados/ initialization)
+```
 
 ## Testing
 
 ```bash
 bun test
 ```
+
+Tests cover API routes, audit logging, action validation, chat flow, CLI lifecycle, policy enforcement, and thread type patterns.
+
+## CI
+
+GitHub Actions runs on every push and PR:
+- `bun install` + `bun test`
+- `tsc --noEmit` (TypeScript type checking)
+
+## Documentation
+
+- [CLI Reference](docs/cli-reference.md)
+- [Thread Types Guide](docs/thread-types.md)
+- [Policy Configuration](docs/policy.md)
 
 ## License
 
