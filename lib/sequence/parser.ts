@@ -1,14 +1,28 @@
 import YAML from 'yaml'
 import { readFile } from 'fs/promises'
 import { join } from 'path'
+import { existsSync } from 'fs'
 import { SequenceSchema, type Sequence } from './schema'
 import { writeFileAtomic } from '../fs/atomic'
 import { SequenceValidationError } from '../errors'
 
 const SEQUENCE_PATH = '.threados/sequence.yaml'
 
+/** Default empty sequence returned when no sequence.yaml exists */
+const DEFAULT_SEQUENCE: Sequence = {
+  version: '1.0',
+  name: 'New Sequence',
+  steps: [],
+  gates: [],
+  metadata: {
+    created_at: new Date().toISOString(),
+    description: 'Default empty sequence',
+  },
+}
+
 /**
- * Read and validate sequence.yaml from the given base path
+ * Read and validate sequence.yaml from the given base path.
+ * Returns a default empty sequence if the file does not exist.
  *
  * @param basePath - The root directory containing .threados/
  * @returns The validated Sequence object
@@ -16,6 +30,11 @@ const SEQUENCE_PATH = '.threados/sequence.yaml'
  */
 export async function readSequence(basePath: string): Promise<Sequence> {
   const fullPath = join(basePath, SEQUENCE_PATH)
+
+  if (!existsSync(fullPath)) {
+    return DEFAULT_SEQUENCE
+  }
+
   const content = await readFile(fullPath, 'utf-8')
   const raw = YAML.parse(content)
 
