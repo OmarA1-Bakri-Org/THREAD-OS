@@ -1,4 +1,23 @@
 version: "1.0"
-name: "New Sequence"
-steps: []
+name: "Demo Sequence"
+steps:
+  - id: setup
+    name: "Project Setup"
+    run: "echo 'Setting up project...'"
+    status: idle
+  - id: build
+    name: "Build"
+    run: "echo 'Building...'"
+    deps: [setup]
+    status: idle
+  - id: test
+    name: "Run Tests"
+    run: "echo 'Testing...'"
+    deps: [build]
+    status: idle
+  - id: deploy
+    name: "Deploy"
+    run: "echo 'Deploying...'"
+    deps: [test]
+    status: idle
 gates: []
