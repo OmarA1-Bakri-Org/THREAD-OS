@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect } from 'react'
-import { ReactFlow, MiniMap, Controls, Background, useReactFlow } from '@xyflow/react'
+import { ReactFlow, ReactFlowProvider, MiniMap, Controls, Background, useReactFlow } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import { useStatus } from '@/lib/ui/api'
 import { useUIStore } from '@/lib/ui/store'
@@ -52,8 +52,10 @@ function CanvasInner() {
 
 export function SequenceCanvas() {
   return (
-    <div className="w-full h-full">
-      <CanvasInner />
-    </div>
+    <ReactFlowProvider>
+      <div className="w-full h-full">
+        <CanvasInner />
+      </div>
+    </ReactFlowProvider>
   )
 }
