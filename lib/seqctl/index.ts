@@ -1,5 +1,4 @@
 #!/usr/bin/env bun
-import { parseArgs } from 'util'
 import { ZodError } from 'zod'
 import { initCommand } from './commands/init'
 import { runCommand } from './commands/run'
@@ -54,23 +53,20 @@ function formatError(error: unknown): string {
 }
 
 async function main() {
-  const { values, positionals } = parseArgs({
-    args: Bun.argv.slice(2),
-    options: {
-      json: { type: 'boolean', short: 'j', default: false },
-      help: { type: 'boolean', short: 'h', default: false },
-      watch: { type: 'boolean', short: 'w', default: false },
-    },
-    allowPositionals: true,
-  })
+  const rawArgs = Bun.argv.slice(2)
 
-  const options: CLIOptions = {
-    json: values.json ?? false,
-    help: values.help ?? false,
-    watch: values.watch ?? false,
+  // Extract global flags manually so subcommand flags pass through untouched
+  const options: CLIOptions = { json: false, help: false, watch: false }
+  const remaining: string[] = []
+
+  for (const arg of rawArgs) {
+    if (arg === '--json' || arg === '-j') options.json = true
+    else if (arg === '--help' || arg === '-h') options.help = true
+    else if (arg === '--watch' || arg === '-w') options.watch = true
+    else remaining.push(arg)
   }
 
-  const [command, subcommand, ...args] = positionals
+  const [command, subcommand, ...args] = remaining
 
   if (options.help || !command) {
     console.log(`
