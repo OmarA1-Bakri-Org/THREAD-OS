@@ -1,3 +1,5 @@
+# Sequence Status
+
 Read the current ThreadOS sequence status by running `bunx seqctl status --json`. Parse the JSON output and present a clear summary showing:
 
 1. Sequence name

@@ -125,6 +125,7 @@ seqctl restart <stepId> --json
 ## Common Workflow Patterns
 
 ### Pattern 1: Simple Task (Base)
+
 ```bash
 seqctl init
 seqctl step add do-thing --name "Do the thing" --type base --model claude-code --prompt prompts/do-thing.md --json
@@ -132,6 +133,7 @@ seqctl run step do-thing --json
 ```
 
 ### Pattern 2: Plan → Gate → Implement → Test (C-Thread)
+
 ```bash
 seqctl step add plan --name "Plan" --type base --model claude-code --prompt prompts/plan.md --json
 seqctl step add impl --name "Implement" --type base --model claude-code --prompt prompts/impl.md --json
@@ -143,6 +145,7 @@ seqctl dep add test impl --json
 ```
 
 ### Pattern 3: Multi-Model Fusion (F-Thread)
+
 ```bash
 seqctl step add claude-impl --name "Claude Impl" --type f --model claude-code --prompt prompts/impl.md --json
 seqctl step add codex-impl --name "Codex Impl" --type f --model codex --prompt prompts/impl.md --json
@@ -163,7 +166,7 @@ Each run produces artifacts in `.threados/runs/<runId>/<stepId>/`:
 
 ## Project Structure
 
-```
+```text
 lib/seqctl/          # CLI commands
 lib/sequence/        # Schema, parser, DAG validation
 lib/runner/          # Step execution wrapper
