@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { buildConditionContext, evaluateRuntimeCondition, hydrateApolloApprovalRuntimeContext } from './context'
+import { buildConditionContext, evaluateRuntimeCondition, hydrateApolloApprovalRuntimeContext, storeRuntimeContextValue } from './context'
 import type { Sequence } from '../sequence/schema'
 
 const baseSequence: Sequence = {
@@ -254,5 +254,9 @@ describe('apollo approval runtime hydration', () => {
       apollo_artifact_dir: artifactDir,
       resolved_stage_id: 123,
     } as any)).rejects.toThrow("Runtime context value 'resolved_stage_id' must be a string or null when provided")
+  })
+
+  test('rejects prototype-polluting runtime context paths', async () => {
+    await expect(storeRuntimeContextValue(tempDir, '__proto__.polluted', 'yes')).rejects.toThrow('forbidden segment')
   })
 })
