@@ -13,7 +13,7 @@ import {
   validateStepPromptExists,
 } from '../../runner/step-preparation'
 import { assessCompletionResult, dispatch } from '../../runner/dispatch'
-import { preflightStepEnvironment } from '../../runner/environment-preflight'
+import { preflightStepEnvironment, resolveComposioCli } from '../../runner/environment-preflight'
 import { StepNotFoundError } from '../../errors'
 import type { Step, Sequence, StepStatus } from '../../sequence/schema'
 import { ROOT_THREAD_SURFACE_ID } from '../../thread-surfaces/constants'
@@ -30,6 +30,8 @@ import {
   readRuntimeContext,
 } from '../../runtime/context'
 import { AbortWorkflowError, assessSelectedStepEvidence, executeNativeOperationalAction, renderRuntimeContextTemplate } from '../../runtime/native-actions'
+import { executeComposioCli } from '../../runtime/composio-cli'
+import { resolveBatchRootRunStatus } from '../../runtime/run-status'
 import { PolicyEngine } from '../../policy/engine'
 
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000 // 30 minutes
@@ -76,6 +78,7 @@ interface CLIRunRuntime {
     arguments: Record<string, unknown>
     timeoutMs?: number
   }) => Promise<unknown>
+  composioExecutorRequiresCliPreflight?: boolean
 }
 
 declare global {
@@ -94,41 +97,19 @@ async function executeComposioTool(input: {
   arguments: Record<string, unknown>
   timeoutMs?: number
 }): Promise<unknown> {
-  const command = Bun.which('composio')
-  if (!command) throw new Error("Composio CLI not found in PATH; configure the CLI before running composio_tool actions")
-  const proc = Bun.spawn({
-    cmd: [command, 'execute', input.toolSlug, '-d', JSON.stringify(input.arguments ?? {})],
-    stdout: 'pipe',
-    stderr: 'pipe',
-  })
-  const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS
-  let timer: ReturnType<typeof setTimeout> | undefined
-  const timeout = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => {
-      proc.kill()
-      reject(new Error(`Composio tool '${input.toolSlug}' timed out after ${timeoutMs}ms`))
-    }, timeoutMs)
-  })
-  try {
-    const [stdout, stderr, exitCode] = await Promise.race([
-      Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]),
-      timeout,
-    ])
-    if (exitCode !== 0) throw new Error(stderr.trim() || stdout.trim() || `Composio tool '${input.toolSlug}' failed with exit code ${exitCode}`)
-    const trimmed = stdout.trim()
-    if (!trimmed) return null
-    try { return JSON.parse(trimmed) } catch { return trimmed }
-  } finally {
-    if (timer) clearTimeout(timer)
-  }
+  const command = await resolveComposioCli()
+  if (!command) throw new Error("Composio CLI not found on PATH or at ~/.composio/composio; configure the CLI before running composio_tool actions")
+  return executeComposioCli(command, input, DEFAULT_TIMEOUT_MS)
 }
 
 function getCLIRunRuntime(): CLIRunRuntime {
-  return globalThis.__THREADOS_CLI_RUN_RUNTIME__ ?? {
-    dispatch,
-    runStep,
-    saveRunArtifacts,
-    runComposioTool: executeComposioTool,
+  const override = globalThis.__THREADOS_CLI_RUN_RUNTIME__
+  return {
+    dispatch: override?.dispatch ?? dispatch,
+    runStep: override?.runStep ?? runStep,
+    saveRunArtifacts: override?.saveRunArtifacts ?? saveRunArtifacts,
+    runComposioTool: override?.runComposioTool ?? executeComposioTool,
+    composioExecutorRequiresCliPreflight: override?.runComposioTool == null,
   }
 }
 
@@ -500,7 +481,7 @@ async function executeSingleStep(
   try {
     const runtime = getCLIRunRuntime()
     await preflightStepEnvironment(basePath, step, {
-      hasComposioExecutor: Boolean(globalThis.__THREADOS_CLI_RUN_RUNTIME__?.runComposioTool),
+      hasComposioExecutor: Boolean(runtime.runComposioTool) && runtime.composioExecutorRequiresCliPreflight !== true,
     })
     const runtimeEventLogPath = getRuntimeEventLogPath(basePath, runId, stepId)
     const surfaceId = getSurfaceId(step)
@@ -796,8 +777,9 @@ async function handleRunRunnable(
   const result: RunRunnableResult = noWork
     ? { success: true, executed, skipped: Array.from(skipped), waiting: [], error: 'No runnable steps found' }
     : { success: executed.every(e => e.success) && waiting.size === 0, executed, skipped: Array.from(skipped), waiting: Array.from(waiting) }
-  await finalizeRootRunScopeForCommand(basePath, runId, waiting.size > 0 ? 'pending' : result.success ? 'successful' : 'failed', 'mode:runnable')
-  if (waiting.size > 0) await releaseApprovalClaims(basePath, runId)
+  const rootRunStatus = resolveBatchRootRunStatus(result)
+  await finalizeRootRunScopeForCommand(basePath, runId, rootRunStatus, 'mode:runnable')
+  if (rootRunStatus === 'pending') await releaseApprovalClaims(basePath, runId)
   else await retireApprovalClaims(basePath, runId)
   outputRunnableResult(result, options)
 }
@@ -909,8 +891,9 @@ async function handleRunGroup(
     skipped: Array.from(skipped),
     waiting: Array.from(waiting),
   }
-  await finalizeRootRunScopeForCommand(basePath, runId, waiting.size > 0 ? 'pending' : result.success ? 'successful' : 'failed', `group:${groupId}`)
-  if (waiting.size > 0) await releaseApprovalClaims(basePath, runId)
+  const rootRunStatus = resolveBatchRootRunStatus(result)
+  await finalizeRootRunScopeForCommand(basePath, runId, rootRunStatus, `group:${groupId}`)
+  if (rootRunStatus === 'pending') await releaseApprovalClaims(basePath, runId)
   else await retireApprovalClaims(basePath, runId)
 
   if (options.json) {

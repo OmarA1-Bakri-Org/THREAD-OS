@@ -435,6 +435,7 @@ function evaluateAtomicRuntimeCondition(expression: string, context: RuntimeCont
     validateConditionRuntimeValue(context, path)
     const actual = getNestedRuntimeValue(context, path)
     const expected = parseRequiredLiteral(rawExpected, normalized)
+    if (actual === undefined) return false
     if (operator === '==') return actual === expected
     if (operator === '!=') return actual !== expected
     if (typeof actual !== 'number' || typeof expected !== 'number') {

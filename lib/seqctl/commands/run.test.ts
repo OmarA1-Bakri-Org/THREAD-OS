@@ -1189,6 +1189,40 @@ describe('run step — with mock runtime', () => {
     expect(combined).toContain('Duration')
   })
 
+  test('run step preflight accepts an injected Composio executor from the resolved runtime without local CLI auth', async () => {
+    const seq = makeSequence({
+      steps: [makeStep({ id: 'preflight-composio', status: 'READY', model: 'shell', prompt_file: '.threados/prompts/preflight-composio.md', actions: [
+        { id: 'human-approval', type: 'approval', description: 'Approve before tool use' },
+        { id: 'tool-after-approval', type: 'composio_tool', config: { tool_slug: 'APOLLO_TEST', arguments: {} } },
+      ] })],
+    })
+    await writeTestSequence(tempDir, seq)
+    await writeFile(join(tempDir, '.threados/prompts/preflight-composio.md'), 'echo should-not-dispatch')
+    const previousPath = process.env.PATH
+    const previousHome = process.env.HOME
+    const isolatedHome = await mkdtemp(join(tmpdir(), 'threados-preflight-resolved-'))
+    process.env.PATH = isolatedHome
+    process.env.HOME = isolatedHome
+    globalThis.__THREADOS_CLI_RUN_RUNTIME__ = {
+      dispatch: async (_model, opts) => ({ stepId: opts.stepId, runId: opts.runId, command: process.execPath, args: ['-e', 'process.exit(0)'], cwd: opts.cwd, timeout: opts.timeout }),
+      runStep: executeProcess,
+      saveRunArtifacts: async () => '.threados/runs/mock',
+      runComposioTool: async () => ({ ok: true }),
+    }
+    const logs: string[] = []; const origLog = console.log; console.log = (msg: string) => logs.push(msg)
+    try {
+      await runCommand('step', ['preflight-composio'], { ...jsonOpts, basePath: tempDir })
+    } finally {
+      console.log = origLog
+      process.env.PATH = previousPath
+      if (previousHome === undefined) delete process.env.HOME; else process.env.HOME = previousHome
+      await rm(isolatedHome, { recursive: true, force: true })
+    }
+    const output = JSON.parse(logs[0])
+    expect(output.status).toBe('BLOCKED')
+    expect(output.error).toContain('Awaiting approval')
+  })
+
   test('run step executes composio actions natively, persists output_key, and still dispatches the prompt', async () => {
     const seq = makeSequence({
       steps: [
@@ -2969,6 +3003,57 @@ describe('run runnable — with mock runtime', () => {
     expect(output.success).toBe(true)
     expect(output.executed).toHaveLength(3)
     expect(executedSteps).toEqual(['step-1', 'step-2', 'step-3'])
+  })
+
+  test('run runnable keeps the root pending when an executed step blocks without downstream waiters', async () => {
+    const seq = makeSequence({
+      steps: [makeStep({
+        id: 'approval-only', status: 'READY', model: 'shell', prompt_file: '.threados/prompts/approval-only.md', depends_on: [],
+        actions: [{ id: 'approval', type: 'approval', config: { approval_prompt: 'Review required' } }],
+      })],
+    })
+    await writeTestSequence(tempDir, seq)
+    await writeFile(join(tempDir, '.threados/prompts/approval-only.md'), 'echo should-not-run')
+    globalThis.__THREADOS_CLI_RUN_RUNTIME__ = {
+      dispatch: async () => { throw new Error('dispatch should not run') },
+      runStep: async () => { throw new Error('runStep should not run') },
+      saveRunArtifacts: async () => '.threados/runs/mock',
+    }
+    const logs: string[] = []; const origLog = console.log; console.log = (msg: string) => logs.push(msg)
+    await runCommand('runnable', [], { ...jsonOpts, basePath: tempDir })
+    console.log = origLog
+    const output = JSON.parse(logs[0])
+    expect(output.executed[0]?.status).toBe('BLOCKED')
+    expect(output.waiting).toEqual([])
+    const state = await readThreadSurfaceState(tempDir)
+    expect(state.runs.find(run => run.threadSurfaceId === 'thread-root')?.runStatus).toBe('pending')
+  })
+
+  test('run runnable records hard failure even when unrelated blocked work remains waiting', async () => {
+    const seq = makeSequence({ steps: [
+      makeStep({ id: 'failing-work', status: 'READY', model: 'shell', prompt_file: '.threados/prompts/failing-work.md', depends_on: [] }),
+      makeStep({ id: 'blocked-work', status: 'BLOCKED', model: 'shell', prompt_file: '.threados/prompts/blocked-work.md', depends_on: [] }),
+    ] })
+    await writeTestSequence(tempDir, seq)
+    await writeFile(join(tempDir, '.threados/prompts/failing-work.md'), 'echo fail')
+    await writeFile(join(tempDir, '.threados/prompts/blocked-work.md'), 'echo blocked')
+    globalThis.__THREADOS_CLI_RUN_RUNTIME__ = {
+      dispatch: async (_model, opts) => ({ stepId: opts.stepId, runId: opts.runId, command: process.execPath, args: ['-e', 'process.exit(1)'], cwd: opts.cwd, timeout: opts.timeout }),
+      runStep: async config => ({
+        stepId: config.stepId, runId: config.runId, command: config.command, args: config.args, cwd: config.cwd,
+        startTime: new Date(), endTime: new Date(), duration: 10, exitCode: 1, stdout: '', stderr: 'boom', timedOut: false, status: 'FAILED',
+      }),
+      saveRunArtifacts: async () => '.threados/runs/mock',
+    }
+    const logs: string[] = []; const origLog = console.log; console.log = (msg: string) => logs.push(msg)
+    await runCommand('runnable', [], { ...jsonOpts, basePath: tempDir })
+    console.log = origLog
+    const output = JSON.parse(logs[0])
+    expect(output.success).toBe(false)
+    expect(output.waiting).toEqual(['blocked-work'])
+    expect(output.executed[0]?.status).toBe('FAILED')
+    const state = await readThreadSurfaceState(tempDir)
+    expect(state.runs.find(run => run.threadSurfaceId === 'thread-root')?.runStatus).toBe('failed')
   })
 
   test('run runnable aborts the workflow when a composio action fails with abort_workflow', async () => {

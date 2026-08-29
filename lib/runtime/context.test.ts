@@ -92,6 +92,11 @@ describe('runtime condition evaluation', () => {
     expect(evaluateRuntimeCondition(`alt == 'sales OR marketing'`, context)).toBe(true)
   })
 
+  test('treats unresolved comparison paths as non-matches, including != null', () => {
+    expect(evaluateRuntimeCondition('missing_stage != null', {})).toBe(false)
+    expect(evaluateRuntimeCondition('missing_stage == null', {})).toBe(false)
+  })
+
   test('throws when a condition-critical runtime value has the wrong type', () => {
     expect(() => evaluateRuntimeCondition('icp_config.sources.length == 2', {
       icp_config: {

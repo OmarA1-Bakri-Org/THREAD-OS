@@ -84,6 +84,28 @@ describe('runStep', () => {
     expect(result.stdout.trim()).toBe('test-value')
   })
 
+  test('secret-bearing thredOS env vars are not inherited by child processes', async () => {
+    const { runStep } = await importActualWrapper()
+    const previousThreados = process.env.THREADOS_SESSION_SECRET
+    const previousThredos = process.env.THREDOS_ACTIVATION_SECRET
+    process.env.THREADOS_SESSION_SECRET = 'legacy-secret'
+    process.env.THREDOS_ACTIVATION_SECRET = 'canonical-secret'
+    try {
+      const result = await runStep({
+        stepId: 'threados-secret-filter',
+        runId: 'run-secret-filter',
+        command: process.execPath,
+        args: ['-e', 'process.stdout.write(`${process.env.THREADOS_SESSION_SECRET ?? "FILTERED"}|${process.env.THREDOS_ACTIVATION_SECRET ?? "FILTERED"}`)'],
+      })
+      expect(result.stdout.trim()).toBe('FILTERED|FILTERED')
+    } finally {
+      if (previousThreados === undefined) delete process.env.THREADOS_SESSION_SECRET
+      else process.env.THREADOS_SESSION_SECRET = previousThreados
+      if (previousThredos === undefined) delete process.env.THREDOS_ACTIVATION_SECRET
+      else process.env.THREDOS_ACTIVATION_SECRET = previousThredos
+    }
+  })
+
   test('inherited env vars filtered through allowlist', async () => {
     const { runStep } = await importActualWrapper()
     const originalSensitive = process.env.AWS_SECRET_ACCESS_KEY

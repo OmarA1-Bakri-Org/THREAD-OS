@@ -1,9 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import { mkdir, utimes } from 'fs/promises'
+import { join } from 'path'
 import { createTempDir, cleanTempDir } from '../../test/helpers/setup'
 import { appendApproval } from './repository'
 import { claimApprovedActiveRunId, releaseApprovalClaims, retireApprovalClaims } from './active-run'
 import { writeThreadSurfaceState, readThreadSurfaceState } from '@/lib/thread-surfaces/repository'
 import type { Approval } from '@/lib/contracts/schemas'
+import { lock } from 'proper-lockfile'
 
 let basePath = ''
 const target = 'step:approved'
@@ -25,6 +28,24 @@ beforeEach(async () => {
 afterEach(async () => { await cleanTempDir(basePath) })
 
 describe('approval run claims', () => {
+  test('recovers a demonstrably stale claim lock left by a dead owner', async () => {
+    const lockPath = join(basePath, '.threados', 'state', 'approval-run-claim.lock')
+    await mkdir(lockPath, { recursive: true })
+    const stale = new Date('2020-01-01T00:00:00.000Z')
+    await utimes(lockPath, stale, stale)
+    await expect(claimApprovedActiveRunId(basePath, [target], 'request-after-crash')).resolves.toBe('approval-run')
+  })
+
+  test('does not reclaim a claim lock owned by a live process', async () => {
+    const lockTarget = join(basePath, '.threados', 'state', 'approval-run-claim')
+    const release = await lock(lockTarget, { realpath: false, stale: 30_000, update: 10_000 })
+    try {
+      await expect(claimApprovedActiveRunId(basePath, [target], 'request-contender')).rejects.toThrow('Timed out acquiring approval run claim lock')
+    } finally {
+      await release()
+    }
+  })
+
   test('allows only one concurrent root request to claim the same approved run', async () => {
     const [left, right] = await Promise.all([
       claimApprovedActiveRunId(basePath, [target], 'request-a'),

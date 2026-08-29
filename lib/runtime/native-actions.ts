@@ -10,7 +10,7 @@ import {
   type RuntimeContext,
 } from './context'
 import type { Step, Sequence, ModelType } from '../sequence/schema'
-import type { RunnerConfig, RunResult } from '../runner/wrapper'
+import { isSafeInheritedEnvKey, type RunnerConfig, type RunResult } from '../runner/wrapper'
 import { assessCompletionResult, type CompletionAssessment } from '../runner/dispatch'
 import type { dispatch } from '../runner/dispatch'
 import { resolveWritablePathWithinBase } from './path-safety'
@@ -146,8 +146,12 @@ async function resolveCliArgument(
   if (typeof value === 'string') {
     const envMatch = value.match(/^\$\{([A-Z][A-Z0-9_]*)\}$/)
     if (envMatch) {
-      const envValue = process.env[envMatch[1]]
-      if (envValue == null) throw new Error(`CLI environment variable '${envMatch[1]}' is not configured`)
+      const envKey = envMatch[1]
+      if (!isSafeInheritedEnvKey(envKey)) {
+        throw new Error(`CLI environment variable '${envKey}' is not allowed for inherited runtime access`)
+      }
+      const envValue = process.env[envKey]
+      if (envValue == null) throw new Error(`CLI environment variable '${envKey}' is not configured`)
       return envValue
     }
     return renderRuntimeContextTemplate(basePath, value, runtimeContext)

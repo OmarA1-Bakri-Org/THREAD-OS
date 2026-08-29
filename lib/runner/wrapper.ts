@@ -31,13 +31,19 @@ const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000 // 30 minutes
 const SAFE_ENV_KEYS = new Set([
   'PATH', 'HOME', 'USER', 'SHELL', 'LANG', 'LC_ALL', 'LC_CTYPE',
   'TERM', 'TMPDIR', 'TMP', 'TEMP', 'NODE_ENV', 'BUN_INSTALL',
-  'THREADOS_BASE_PATH', 'THREADOS_MPROCS_PATH',
+  'THREDOS_BASE_PATH', 'THREADOS_BASE_PATH',
+  'THREDOS_MPROCS_PATH', 'THREADOS_MPROCS_PATH',
+  'THREADOS_STATE_MANAGER_PATH',
 ])
+
+export function isSafeInheritedEnvKey(key: string): boolean {
+  return SAFE_ENV_KEYS.has(key)
+}
 
 function getSafeEnv(extra: Record<string, string>): NodeJS.ProcessEnv {
   const safe: Record<string, string> = {}
   for (const key of Object.keys(process.env)) {
-    if (SAFE_ENV_KEYS.has(key) || key.startsWith('THREADOS_')) {
+    if (isSafeInheritedEnvKey(key)) {
       safe[key] = process.env[key]!
     }
   }

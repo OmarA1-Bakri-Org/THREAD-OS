@@ -7,6 +7,7 @@ import { runStep as executeProcess } from '@/lib/runner/wrapper'
 import { appendApproval, readApprovals } from '@/lib/approvals/repository'
 import { readSequence } from '@/lib/sequence/parser'
 import { readTraceEvents } from '@/lib/traces/reader'
+import { readThreadSurfaceState } from '@/lib/thread-surfaces/repository'
 
 let basePath = ''
 
@@ -188,6 +189,71 @@ describe.serial('run route coverage — runnable mode', () => {
     delete globalThis.__THREADOS_RUN_ROUTE_RUNTIME__
     delete process.env.THREADOS_BASE_PATH
     await rm(basePath, { recursive: true, force: true })
+  })
+
+  test('POST with mode=runnable reports an unresolved BLOCKED step as waiting instead of successful empty work', async () => {
+    await setupTestSequence({
+      version: '1.0', name: 'blocked-waiting-only',
+      steps: [{ id: 'blocked-only', name: 'Blocked Only', type: 'base', model: 'codex', prompt_file: '.threados/prompts/blocked-only.md', depends_on: [], status: 'BLOCKED' }],
+      gates: [],
+    })
+    await writePrompt('blocked-only')
+    const { POST } = await import('@/app/api/run/route')
+    const res = await POST(new Request('http://localhost/api/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: confirmedBody({ mode: 'runnable' }) }))
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data.success).toBe(false)
+    expect(data.executed).toEqual([])
+    expect(data.waiting).toEqual(['blocked-only'])
+    const state = await readThreadSurfaceState(basePath)
+    expect(state.runs.find(run => run.threadSurfaceId === 'thread-root')?.runStatus).toBe('pending')
+  })
+
+  test('POST with mode=runnable retains unresolved BLOCKED work after executing runnable work', async () => {
+    await setupTestSequence({
+      version: '1.0', name: 'mixed-blocked-waiting',
+      steps: [
+        { id: 'ready-work', name: 'Ready Work', type: 'base', model: 'codex', prompt_file: '.threados/prompts/ready-work.md', depends_on: [], status: 'READY' },
+        { id: 'blocked-work', name: 'Blocked Work', type: 'base', model: 'codex', prompt_file: '.threados/prompts/blocked-work.md', depends_on: [], status: 'BLOCKED' },
+      ], gates: [],
+    })
+    await writePrompt('ready-work'); await writePrompt('blocked-work')
+    const { POST } = await import('@/app/api/run/route')
+    const res = await POST(new Request('http://localhost/api/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: confirmedBody({ mode: 'runnable' }) }))
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data.success).toBe(false)
+    expect(data.executed.map((entry: { stepId: string }) => entry.stepId)).toEqual(['ready-work'])
+    expect(data.waiting).toEqual(['blocked-work'])
+    const state = await readThreadSurfaceState(basePath)
+    expect(state.runs.find(run => run.threadSurfaceId === 'thread-root')?.runStatus).toBe('pending')
+  })
+
+  test('POST with mode=runnable records hard failure even when unrelated blocked work remains waiting', async () => {
+    globalThis.__THREADOS_RUN_ROUTE_RUNTIME__ = {
+      ...createMockRuntime(),
+      runStep: async ({ stepId, runId }: { stepId: string; runId: string }) => ({
+        stepId, runId, exitCode: 1, status: 'FAILED' as const, duration: 10,
+        stdout: '', stderr: 'boom', startTime: new Date(), endTime: new Date(),
+      }),
+    }
+    await setupTestSequence({
+      version: '1.0', name: 'failed-plus-waiting',
+      steps: [
+        { id: 'failing-work', name: 'Failing Work', type: 'base', model: 'codex', prompt_file: '.threados/prompts/failing-work.md', depends_on: [], status: 'READY' },
+        { id: 'blocked-work', name: 'Blocked Work', type: 'base', model: 'codex', prompt_file: '.threados/prompts/blocked-work.md', depends_on: [], status: 'BLOCKED' },
+      ], gates: [],
+    })
+    await writePrompt('failing-work'); await writePrompt('blocked-work')
+    const { POST } = await import('@/app/api/run/route')
+    const res = await POST(new Request('http://localhost/api/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: confirmedBody({ mode: 'runnable' }) }))
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data.success).toBe(false)
+    expect(data.waiting).toEqual(['blocked-work'])
+    expect(data.executed[0]?.status).toBe('FAILED')
+    const state = await readThreadSurfaceState(basePath)
+    expect(state.runs.find(run => run.threadSurfaceId === 'thread-root')?.runStatus).toBe('failed')
   })
 
   test('POST with mode=runnable runs all runnable steps in topological order', async () => {

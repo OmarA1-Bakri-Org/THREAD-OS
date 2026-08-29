@@ -63,18 +63,21 @@ async function ensureExecutable(path: string): Promise<boolean> {
   }
 }
 
-async function ensureComposioPreflight(options: PreflightProbeOptions = {}): Promise<void> {
+export async function resolveComposioCli(options: Pick<PreflightProbeOptions, 'home' | 'which'> = {}): Promise<string | null> {
   const home = options.home ?? process.env.HOME ?? ''
   const which = options.which ?? ((binary: string) => Bun.which(binary))
-  const commandCandidates = [which('composio'), home ? join(home, '.composio', 'composio') : null].filter((value): value is string => Boolean(value))
+  const commandCandidates = [which('composio'), home ? join(home, '.composio', 'composio') : null]
+    .filter((value): value is string => Boolean(value))
 
-  let resolvedCommand: string | null = null
   for (const candidate of commandCandidates) {
-    if (await ensureExecutable(candidate)) {
-      resolvedCommand = candidate
-      break
-    }
+    if (await ensureExecutable(candidate)) return candidate
   }
+  return null
+}
+
+async function ensureComposioPreflight(options: PreflightProbeOptions = {}): Promise<void> {
+  const home = options.home ?? process.env.HOME ?? ''
+  const resolvedCommand = await resolveComposioCli(options)
 
   if (!resolvedCommand) {
     throw runtimePreflightError('Composio CLI is unavailable (expected on PATH or at ~/.composio/composio)')

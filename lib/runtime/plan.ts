@@ -1,6 +1,7 @@
-import { mkdir, open, readFile, unlink } from 'fs/promises'
+import { mkdir, readFile } from 'fs/promises'
 import { join } from 'path'
 import { writeFileAtomic } from '../fs/atomic'
+import { withFileLock } from '../fs/file-lock'
 import { z } from 'zod'
 
 export const StrategyRevisionSchema = z.object({
@@ -71,23 +72,7 @@ export async function initRuntimePlan(basePath: string, input: {
 }
 
 async function withRuntimePlanLock<T>(basePath: string, work: () => Promise<T>): Promise<T> {
-  await mkdir(join(basePath, '.threados', 'state'), { recursive: true })
-  const lockPath = `${getRuntimePlanPath(basePath)}.lock`
-  for (let attempt = 0; attempt < 100; attempt += 1) {
-    try {
-      const handle = await open(lockPath, 'wx')
-      try {
-        return await work()
-      } finally {
-        await handle.close()
-        await unlink(lockPath).catch(() => {})
-      }
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
-      await new Promise(resolveDelay => setTimeout(resolveDelay, 10))
-    }
-  }
-  throw new Error('Timed out acquiring runtime plan lock')
+  return withFileLock(getRuntimePlanPath(basePath), work, { label: 'runtime plan lock' })
 }
 
 export async function appendPlanRevision(basePath: string, revision: StrategyRevision): Promise<RuntimePlan> {

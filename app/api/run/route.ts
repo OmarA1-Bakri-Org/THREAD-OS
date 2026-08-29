@@ -34,7 +34,7 @@ import {
   type RunRecordJson,
 } from '@/lib/runner/artifacts'
 import { assessCompletionResult, dispatch } from '@/lib/runner/dispatch'
-import { preflightStepEnvironment } from '@/lib/runner/environment-preflight'
+import { preflightStepEnvironment, resolveComposioCli } from '@/lib/runner/environment-preflight'
 import { runStep, type RunnerConfig } from '@/lib/runner/wrapper'
 import { topologicalSort, validateDAG } from '@/lib/sequence/dag'
 import { readSequence, writeSequence } from '@/lib/sequence/parser'
@@ -54,6 +54,8 @@ import {
   evaluateSequenceCondition,
   readRuntimeContext,
 } from '@/lib/runtime/context'
+import { executeComposioCli } from '@/lib/runtime/composio-cli'
+import { resolveBatchRootRunStatus } from '@/lib/runtime/run-status'
 import {
   AbortWorkflowError,
   assessSelectedStepEvidence,
@@ -146,35 +148,9 @@ async function executeComposioTool(input: {
   arguments: Record<string, unknown>
   timeoutMs?: number
 }): Promise<unknown> {
-  const command = Bun.which('composio') ?? `${process.env.HOME}/.composio/composio`
-  const proc = Bun.spawn({
-    cmd: [command, 'execute', input.toolSlug, '-d', JSON.stringify(input.arguments ?? {})],
-    stdout: 'pipe',
-    stderr: 'pipe',
-  })
-  const timeout = setTimeout(() => proc.kill(), input.timeoutMs ?? DEFAULT_TIMEOUT_MS)
-
-  try {
-    const [stdout, stderr, exitCode] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-      proc.exited,
-    ])
-
-    if (exitCode !== 0) {
-      throw new Error(stderr.trim() || stdout.trim() || `Composio tool '${input.toolSlug}' failed with exit code ${exitCode}`)
-    }
-
-    const trimmed = stdout.trim()
-    if (!trimmed) return null
-    try {
-      return JSON.parse(trimmed)
-    } catch {
-      return trimmed
-    }
-  } finally {
-    clearTimeout(timeout)
-  }
+  const command = await resolveComposioCli()
+  if (!command) throw new Error('Composio CLI is unavailable; run preflight before executing composio_tool actions')
+  return executeComposioCli(command, input, DEFAULT_TIMEOUT_MS)
 }
 
 async function collectApprovalTargetRefs(
@@ -366,6 +342,24 @@ function getInputManifestRef(runId: string, surfaceId: string): string {
 function getArtifactManifestRef(runId: string, surfaceId: string): string {
   return `.threados/runs/${runId}/surfaces/${surfaceId}/artifact.manifest.json`
 }
+
+function collectBlockedWaitingStepIds(
+  sequence: Sequence,
+  body: RunRequestBody,
+  alreadyExecuted: ReadonlySet<string> = new Set(),
+): string[] {
+  const groupScope = 'groupId' in body
+    ? new Set(sequence.steps.filter(step => step.group_id === body.groupId).map(step => step.id))
+    : null
+  const directScope = 'stepId' in body ? new Set([body.stepId]) : null
+  const scope = groupScope ?? directScope
+  return sequence.steps
+    .filter(step => step.status === 'BLOCKED')
+    .filter(step => !alreadyExecuted.has(step.id))
+    .filter(step => scope == null || scope.has(step.id))
+    .map(step => step.id)
+}
+
 
 async function executeNativeStepActions(
   basePath: string,
@@ -616,8 +610,8 @@ async function finalizeStepRunScope(
 
 
 function resolveRequestRunStatus(result: ExecuteStepResult | BatchExecuteResult): RunScopeStatus {
-  if ('status' in result && (result.status === 'BLOCKED' || result.confirmationRequired === true)) return 'pending'
-  if ('executed' in result && result.executed.some(entry => entry.status === 'BLOCKED' || entry.confirmationRequired === true)) return 'pending'
+  if ('executed' in result) return resolveBatchRootRunStatus(result)
+  if (result.status === 'BLOCKED' || result.confirmationRequired === true) return 'pending'
   return result.success ? 'successful' : 'failed'
 }
 
@@ -954,8 +948,15 @@ async function executeBatchSteps(
     if (!expandRunnableFrontier) break
   }
 
+  const finalSequence = await readSequence(basePath)
+  for (const step of finalSequence.steps) {
+    if (step.status !== 'BLOCKED' || alreadyExecuted.has(step.id)) continue
+    if (scopeStepIds && !scopeStepIds.has(step.id)) continue
+    waiting.add(step.id)
+  }
+
   return {
-    success: executed.every(result => result.success),
+    success: executed.every(result => result.success) && waiting.size === 0,
     executed,
     skipped: Array.from(skipped),
     waiting: Array.from(waiting),
@@ -1000,7 +1001,17 @@ export async function POST(request: Request) {
       if ('stepId' in body) {
         return jsonError(`Step '${body.stepId}' not found`, 'NOT_FOUND', 404)
       }
-      return NextResponse.json({ success: true, executed: [], skipped: targetSkippedIds, waiting: [] })
+      const reconciledSequence = await readSequence(basePath)
+      const waiting = collectBlockedWaitingStepIds(reconciledSequence, body)
+      if (waiting.length === 0) {
+        return NextResponse.json({ success: true, executed: [], skipped: targetSkippedIds, waiting })
+      }
+      const runId = randomUUID()
+      const startedAt = new Date().toISOString()
+      await createRunScopeForRequest(basePath, sequence.name, runId, startedAt)
+      const result: BatchExecuteResult = { success: false, executed: [], skipped: targetSkippedIds, waiting }
+      await finalizeRunScope(basePath, runId, resolveBatchRootRunStatus(result), targetRefFromRunBody(body))
+      return NextResponse.json(result)
     }
 
     const runId = randomUUID()
@@ -1059,8 +1070,9 @@ export async function POST(request: Request) {
         approvalTargetRef,
         approvalRunIds: activeApprovalRunIds,
       }, groupStepIds, false, targetSkippedIds)
-      await finalizeRunScope(basePath, runId, resolveRequestRunStatus(result), `group:${body.groupId}`)
-      if (result.waiting.length > 0 || result.executed.some(entry => entry.status === 'BLOCKED')) await releaseApprovalClaims(basePath, runId)
+      const rootRunStatus = resolveRequestRunStatus(result)
+      await finalizeRunScope(basePath, runId, rootRunStatus, `group:${body.groupId}`)
+      if (rootRunStatus === 'pending') await releaseApprovalClaims(basePath, runId)
       else await retireApprovalClaims(basePath, runId)
       await auditLog('run.group', body.groupId, { runId, count: result.executed.length }, result.success ? 'ok' : 'failed')
       return NextResponse.json(result)
@@ -1072,8 +1084,9 @@ export async function POST(request: Request) {
       approvalTargetRef,
       approvalRunIds: activeApprovalRunIds,
     }, undefined, true, targetSkippedIds)
-    await finalizeRunScope(basePath, runId, resolveRequestRunStatus(result), 'mode:runnable')
-    if (result.waiting.length > 0 || result.executed.some(entry => entry.status === 'BLOCKED')) await releaseApprovalClaims(basePath, runId)
+    const rootRunStatus = resolveRequestRunStatus(result)
+    await finalizeRunScope(basePath, runId, rootRunStatus, 'mode:runnable')
+    if (rootRunStatus === 'pending') await releaseApprovalClaims(basePath, runId)
     else await retireApprovalClaims(basePath, runId)
     await auditLog('run.runnable', '*', { runId, count: result.executed.length }, result.success ? 'ok' : 'failed')
     return NextResponse.json(result)

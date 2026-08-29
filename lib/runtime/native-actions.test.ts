@@ -73,6 +73,56 @@ describe('native action runtime contracts', () => {
     expect(calls).toBe(0)
   })
 
+  test('rejects structured CLI arguments that read non-allowlisted inherited environment secrets', async () => {
+    const previous = process.env.AWS_SECRET_ACCESS_KEY
+    process.env.AWS_SECRET_ACCESS_KEY = 'do-not-expose'
+    try {
+      await expect(executeNativeOperationalAction(basePath, sequence, step, 'run-env-secret', runtime(), {
+        id: 'secret-cli', type: 'cli', config: { executable: process.execPath, arguments: ['${AWS_SECRET_ACCESS_KEY}'] },
+      })).rejects.toThrow('not allowed')
+    } finally {
+      if (previous === undefined) delete process.env.AWS_SECRET_ACCESS_KEY
+      else process.env.AWS_SECRET_ACCESS_KEY = previous
+    }
+  })
+
+  test('rejects thredOS secret-bearing inherited environment variables', async () => {
+    const previousSession = process.env.THREADOS_SESSION_SECRET
+    const previousActivation = process.env.THREDOS_ACTIVATION_SECRET
+    process.env.THREADOS_SESSION_SECRET = 'do-not-expose-session'
+    process.env.THREDOS_ACTIVATION_SECRET = 'do-not-expose-activation'
+    try {
+      for (const envKey of ['THREADOS_SESSION_SECRET', 'THREDOS_ACTIVATION_SECRET']) {
+        await expect(executeNativeOperationalAction(basePath, sequence, step, `run-${envKey}`, runtime(), {
+          id: `secret-${envKey}`, type: 'cli', config: { executable: process.execPath, arguments: ['${' + envKey + '}'] },
+        })).rejects.toThrow('not allowed')
+      }
+    } finally {
+      if (previousSession === undefined) delete process.env.THREADOS_SESSION_SECRET
+      else process.env.THREADOS_SESSION_SECRET = previousSession
+      if (previousActivation === undefined) delete process.env.THREDOS_ACTIVATION_SECRET
+      else process.env.THREDOS_ACTIVATION_SECRET = previousActivation
+    }
+  })
+
+  test('allows structured CLI arguments to read THREADOS-prefixed inherited environment values', async () => {
+    const previous = process.env.THREADOS_STATE_MANAGER_PATH
+    process.env.THREADOS_STATE_MANAGER_PATH = 'safe-state-manager.py'
+    let capturedArgs: string[] = []
+    try {
+      await executeNativeOperationalAction(basePath, sequence, step, 'run-env-allowed', runtime({
+        runStep: async config => {
+          capturedArgs = config.args ?? []
+          return { stepId: config.stepId, runId: config.runId, exitCode: 0, status: 'SUCCESS', duration: 1, stdout: '', stderr: '', startTime: new Date(), endTime: new Date() }
+        },
+      }), { id: 'allowed-cli', type: 'cli', config: { executable: process.execPath, arguments: ['${THREADOS_STATE_MANAGER_PATH}'] } })
+      expect(capturedArgs).toEqual(['safe-state-manager.py'])
+    } finally {
+      if (previous === undefined) delete process.env.THREADOS_STATE_MANAGER_PATH
+      else process.env.THREADOS_STATE_MANAGER_PATH = previous
+    }
+  })
+
   test('requires explicit SAFE confirmation before a native CLI action executes', async () => {
     let calls = 0
     const unconfirmed = { ...runtime(), policyConfirmed: false } as NativeActionRuntime
