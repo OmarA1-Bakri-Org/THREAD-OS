@@ -1,10 +1,10 @@
 import { defineConfig, devices } from '@playwright/test'
 
-const port = process.env.PLAYWRIGHT_port ?? '4302'
-const baseUrl = process.env.PLAYWRIGHT_baseUrl ?? `http://localhost:${port}`
-const artifactsDir = process.env.PLAYWRIGHT_artifactsDir ?? 'test-results/verify/manual-direct'
-const storageStatePath = process.env.PLAYWRIGHT_storageStatePath ?? `${artifactsDir}/auth-storage-state.json`
-const REport_PATH = process.env.PLAYWRIGHT_JSON_REport_PATH ?? `${artifactsDir}/playwright-report.json`
+const port = process.env.PLAYWRIGHT_PORT ?? '4302'
+const baseUrl = process.env.PLAYWRIGHT_BASE_URL ?? `http://localhost:${port}`
+const artifactsDir = process.env.PLAYWRIGHT_ARTIFACTS_DIR ?? 'test-results/verify/manual-direct'
+const storageStatePath = process.env.PLAYWRIGHT_STORAGE_STATE_PATH ?? `${artifactsDir}/auth-storage-state.json`
+const reportPath = process.env.PLAYWRIGHT_JSON_REPORT_PATH ?? `${artifactsDir}/playwright-report.json`
 
 export default defineConfig({
   testDir: './test/ui',
@@ -16,7 +16,7 @@ export default defineConfig({
   outputDir: `${artifactsDir}/playwright-output`,
   reporter: [
     ['list'],
-    ['json', { outputFile: REport_PATH }],
+    ['json', { outputFile: reportPath }],
   ],
   globalSetup: './test/ui/global-verify-setup.ts',
   use: {

@@ -13,7 +13,8 @@ import type { Step, Sequence, ModelType } from '../sequence/schema'
 import type { RunnerConfig, RunResult } from '../runner/wrapper'
 import { assessCompletionResult, type CompletionAssessment } from '../runner/dispatch'
 import type { dispatch } from '../runner/dispatch'
-import { resolveAbsoluteOrWithinBase } from './path-safety'
+import { resolveWritablePathWithinBase } from './path-safety'
+import { PolicyEngine } from '../policy/engine'
 
 const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000
 
@@ -28,6 +29,7 @@ const APOLLO_FILE_SOURCE_KEYS: Record<string, string> = {
 export interface NativeActionRuntime {
   dispatch: typeof dispatch
   runStep: (config: RunnerConfig) => Promise<RunResult>
+  policyConfirmed?: boolean
   runComposioTool?: (input: {
     toolSlug: string
     arguments: Record<string, unknown>
@@ -136,6 +138,25 @@ async function renderRuntimeValue(basePath: string, value: unknown, runtimeConte
   return value
 }
 
+async function resolveCliArgument(
+  basePath: string,
+  value: unknown,
+  runtimeContext: RuntimeContext,
+): Promise<string> {
+  if (typeof value === 'string') {
+    const envMatch = value.match(/^\$\{([A-Z][A-Z0-9_]*)\}$/)
+    if (envMatch) {
+      const envValue = process.env[envMatch[1]]
+      if (envValue == null) throw new Error(`CLI environment variable '${envMatch[1]}' is not configured`)
+      return envValue
+    }
+    return renderRuntimeContextTemplate(basePath, value, runtimeContext)
+  }
+  if (value == null) return ''
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') return String(value)
+  return JSON.stringify(value)
+}
+
 async function executeCliAction(
   basePath: string,
   step: Step,
@@ -144,25 +165,49 @@ async function executeCliAction(
   action: Record<string, unknown>,
 ): Promise<void> {
   const config = (action.config ?? {}) as Record<string, unknown>
-  const commandTemplate = typeof config.command === 'string' ? config.command : ''
-  const command = commandTemplate ? (await renderRuntimeContextTemplate(basePath, commandTemplate)).trim() : ''
   const actionId = resolveActionId(action, 'cli')
+  const commandTemplate = typeof config.command === 'string' ? config.command.trim() : ''
+  const executableTemplate = typeof config.executable === 'string' ? config.executable.trim() : ''
+  const cwd = step.cwd || basePath
+  let command: string
+  let args: string[]
 
-  if (!command) {
-    throw new Error(`CLI action '${actionId}' is missing config.command`)
+  if (executableTemplate) {
+    if (commandTemplate) throw new Error(`CLI action '${actionId}' must declare either config.command or config.executable, not both`)
+    const runtimeContext = await hydrateApolloApprovalRuntimeContext(basePath, await readRuntimeContext(basePath))
+    command = await resolveCliArgument(basePath, executableTemplate, runtimeContext)
+    const rawArguments = config.arguments == null ? [] : config.arguments
+    if (!Array.isArray(rawArguments)) throw new Error(`CLI action '${actionId}' config.arguments must be an array`)
+    args = await Promise.all(rawArguments.map(value => resolveCliArgument(basePath, value, runtimeContext)))
+  } else {
+    if (!commandTemplate) throw new Error(`CLI action '${actionId}' is missing config.command or config.executable`)
+    if (/\{\{\s*[A-Za-z0-9_.]+\s*\}\}/.test(commandTemplate)) {
+      throw new Error(`CLI action '${actionId}' must use a structured executable and arguments for runtime interpolation`)
+    }
+    command = 'sh'
+    args = ['-c', commandTemplate]
+  }
+
+  const policyCommand = [command, ...args].join(' ').trim()
+  const policyResult = (await PolicyEngine.load(basePath)).validate({ type: 'run_command', command: policyCommand, cwd })
+  if (!policyResult.allowed) {
+    throw new Error(`CLI action '${actionId}' blocked by policy: ${policyResult.reason ?? 'command denied'}`)
+  }
+  if (policyResult.confirmation_required && runtime.policyConfirmed !== true) {
+    throw new Error(`CLI action '${actionId}' requires explicit confirmation by policy`)
   }
 
   const result = await runtime.runStep({
     stepId: `${step.id}::${actionId}`,
     runId,
-    command: 'sh',
-    args: ['-c', command],
-    cwd: step.cwd || basePath,
+    command,
+    args,
+    cwd,
     timeout: resolveActionTimeout(action, step),
   })
 
   const output = {
-    command,
+    command: policyCommand,
     stdout: result.stdout,
     stderr: result.stderr,
     exitCode: result.exitCode,
@@ -170,22 +215,27 @@ async function executeCliAction(
   }
 
   let persistedOutput: unknown = output
-  if (typeof action.output_key === 'string' && action.output_key.length > 0 && result.stdout.trim()) {
-    try {
-      persistedOutput = JSON.parse(result.stdout)
-    } catch {
-      persistedOutput = result.stdout.trim()
+  if (typeof action.output_key === 'string' && action.output_key.length > 0) {
+    const trimmed = result.stdout.trim()
+    if (!trimmed) {
+      persistedOutput = null
+    } else {
+      try {
+        persistedOutput = JSON.parse(trimmed)
+      } catch {
+        persistedOutput = trimmed
+      }
     }
   }
   await storeActionOutput(basePath, action, persistedOutput)
 
   if (result.exitCode !== 0) {
-    await handleActionFailure(action, `CLI action '${actionId}' failed with exit code ${result.exitCode}: ${result.stderr.trim() || result.stdout.trim() || command}`)
+    await handleActionFailure(action, `CLI action '${actionId}' failed with exit code ${result.exitCode}: ${result.stderr.trim() || result.stdout.trim() || policyCommand}`)
   }
 }
 
-function resolveWriteTarget(basePath: string, filePath: string): string {
-  return resolveAbsoluteOrWithinBase(basePath, filePath, 'write_file target')
+async function resolveWriteTarget(basePath: string, filePath: string): Promise<string> {
+  return resolveWritablePathWithinBase(basePath, filePath, 'write_file target')
 }
 
 function resolveWriteSourceKey(action: Record<string, unknown>, targetPath: string, runtimeContext: RuntimeContext): string | null {
@@ -239,7 +289,7 @@ async function executeWriteFileAction(basePath: string, action: Record<string, u
     throw new Error(`write_file action '${actionId}' is missing config.file_path`)
   }
 
-  const targetPath = resolveWriteTarget(basePath, rawFilePath)
+  const targetPath = await resolveWriteTarget(basePath, rawFilePath)
   const { content, sourceKey } = await resolveWriteContent(basePath, action, targetPath)
   await mkdir(dirname(targetPath), { recursive: true })
   await writeFile(targetPath, content, 'utf-8')
@@ -422,7 +472,7 @@ export async function assessSelectedStepEvidence(
       const evidencePath = evidenceValue && typeof evidenceValue === 'object' && !Array.isArray(evidenceValue)
         && typeof (evidenceValue as Record<string, unknown>).path === 'string'
         ? (evidenceValue as Record<string, unknown>).path as string
-        : resolveWriteTarget(basePath, rawFilePath)
+        : await resolveWriteTarget(basePath, rawFilePath)
 
       if (!await pathExists(evidencePath)) {
         reasons.add('EXPLICIT_ARTIFACT_PATH_MISSING')

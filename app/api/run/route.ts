@@ -10,7 +10,7 @@ import {
   type PolicyCheckResult,
 } from '@/lib/api-helpers'
 import { hasApprovedApproval, readApprovals } from '@/lib/approvals/repository'
-import { findApprovedActiveRunId, retireApprovalRun } from '@/lib/approvals/active-run'
+import { claimApprovedActiveRunId, findApprovedActiveRunId, releaseApprovalClaims, retireApprovalClaims } from '@/lib/approvals/active-run'
 import { interpolateApprovalNote, recordApprovedApprovalLifecycle, recordPendingApprovalRequest } from '@/lib/approvals/runtime'
 import { getBasePath } from '@/lib/config'
 import { appendGateDecision } from '@/lib/gates/repository'
@@ -87,6 +87,7 @@ interface ExecuteStepOptions {
   policyConfig: PolicyConfig
   approvalTargetRef: string
   approvalRunId?: string | null
+  approvalRunIds?: ReadonlyMap<string, string>
 }
 
 type ExecuteStepResult = {
@@ -373,6 +374,7 @@ async function executeNativeStepActions(
   runId: string,
   runtime: RunRouteRuntime,
   approvalRunId: string | null = null,
+  policyConfirmed = false,
   actions: Array<Record<string, unknown>> = (step.actions ?? []) as Array<Record<string, unknown>>,
 ): Promise<void> {
   for (const action of actions) {
@@ -384,7 +386,7 @@ async function executeNativeStepActions(
       const nestedActions = Array.isArray(branchActions)
         ? branchActions.filter((candidate): candidate is Record<string, unknown> => !!candidate && typeof candidate === 'object')
         : []
-      await executeNativeStepActions(basePath, sequence, step, runId, runtime, approvalRunId, nestedActions)
+      await executeNativeStepActions(basePath, sequence, step, runId, runtime, approvalRunId, policyConfirmed, nestedActions)
       continue
     }
 
@@ -426,6 +428,7 @@ async function executeNativeStepActions(
 
     await executeNativeOperationalAction(basePath, sequence, step, runId, {
       ...runtime,
+      policyConfirmed,
       runComposioTool: runtime.runComposioTool ?? executeComposioTool,
     }, action)
   }
@@ -685,7 +688,7 @@ async function executeStep(
       ? nativeApprovalTargets
       : [`step:${step.id}`, options.approvalTargetRef]
     const approvalRunId = options.approvalRunId
-      ?? (step.status === 'BLOCKED' ? await findApprovedActiveRunId(basePath, activeApprovalTargets, 'run') : null)
+      ?? (step.status === 'BLOCKED' ? await claimApprovedActiveRunId(basePath, activeApprovalTargets, runId, 'run') : null)
     const approvalPresent = options.confirmPolicy
       || approvals.some(approval => approval.status === 'approved' && (
         approval.target_ref === `step:${step.id}` || approval.target_ref === options.approvalTargetRef
@@ -765,10 +768,7 @@ async function executeStep(
       }
     }
 
-    if (approvalRunId && approvalRunId !== runId) {
-      await retireApprovalRun(basePath, approvalRunId)
-    }
-    await executeNativeStepActions(basePath, sequence, step, runId, runtime, approvalRunId)
+    await executeNativeStepActions(basePath, sequence, step, runId, runtime, approvalRunId, options.confirmPolicy || approvalRunId != null)
 
     const runnerConfig = await runtime.dispatch(step.model, {
       stepId,
@@ -931,7 +931,10 @@ async function executeBatchSteps(
     const orderedStepIds = topologicalSort(currentSequence).filter(stepId => currentTargetIds.has(stepId))
 
     for (const stepId of orderedStepIds) {
-      const result = await executeStep(basePath, currentSequence, stepId, runId, options)
+      const result = await executeStep(basePath, currentSequence, stepId, runId, {
+        ...options,
+        approvalRunId: options.approvalRunIds?.get(stepId) ?? options.approvalRunId ?? null,
+      })
       executed.push(result)
       alreadyExecuted.add(stepId)
 
@@ -977,16 +980,16 @@ export async function POST(request: Request) {
     validateDAG(sequence)
 
     const { steps: targetSteps, skippedIds: targetSkippedIds } = await resolveTargetSteps(basePath, sequence, body)
-    const activeApprovalRunIds = new Map<string, string>()
+    const candidateApprovalRunIds = new Map<string, string>()
     for (const targetStep of targetSteps) {
       if (targetStep.status !== 'BLOCKED') continue
       const nativeTargets = await collectApprovalTargetRefs(basePath, sequence, targetStep)
       const targets = nativeTargets.length > 0 ? nativeTargets : [`step:${targetStep.id}`]
       const approvedRunId = await findApprovedActiveRunId(basePath, targets, 'run')
-      if (approvedRunId) activeApprovalRunIds.set(targetStep.id, approvedRunId)
+      if (approvedRunId) candidateApprovalRunIds.set(targetStep.id, approvedRunId)
     }
     const resumedApprovedWork = targetSteps.length > 0
-      && targetSteps.every(step => step.status === 'BLOCKED' && activeApprovalRunIds.has(step.id))
+      && targetSteps.every(step => step.status === 'BLOCKED' && candidateApprovalRunIds.has(step.id))
     const batchPolicy = await enforceBatchPolicy(basePath, targetSteps.length, body.confirmPolicy === true || resumedApprovedWork)
     if (!batchPolicy.allowed) {
       const policyHttp = policyStatusToHttp(batchPolicy)
@@ -1003,6 +1006,15 @@ export async function POST(request: Request) {
     const runId = randomUUID()
     const startedAt = new Date().toISOString()
     await createRunScopeForRequest(basePath, sequence.name, runId, startedAt)
+
+    const activeApprovalRunIds = new Map<string, string>()
+    for (const targetStep of targetSteps) {
+      if (targetStep.status !== 'BLOCKED' || !candidateApprovalRunIds.has(targetStep.id)) continue
+      const nativeTargets = await collectApprovalTargetRefs(basePath, sequence, targetStep)
+      const targets = nativeTargets.length > 0 ? nativeTargets : [`step:${targetStep.id}`]
+      const claimedRunId = await claimApprovedActiveRunId(basePath, targets, runId, 'run')
+      if (claimedRunId) activeApprovalRunIds.set(targetStep.id, claimedRunId)
+    }
 
     const policyEngine = await PolicyEngine.load(basePath)
     const policyConfig = policyEngine.getConfig()
@@ -1030,6 +1042,8 @@ export async function POST(request: Request) {
         approvalRunId: activeApprovalRunIds.get(body.stepId) ?? null,
       })
       await finalizeRunScope(basePath, runId, resolveRequestRunStatus(result), `step:${body.stepId}`)
+      if (result.status === 'BLOCKED') await releaseApprovalClaims(basePath, runId)
+      else await retireApprovalClaims(basePath, runId)
       await auditLog('run.step', body.stepId, { runId }, result.success ? 'ok' : 'failed')
       if (!result.success && result.confirmationRequired) {
         return jsonError(result.error ?? 'Policy confirmation required', 'POLICY_CONFIRMATION_REQUIRED', 409)
@@ -1043,8 +1057,11 @@ export async function POST(request: Request) {
         confirmPolicy: body.confirmPolicy === true,
         policyConfig,
         approvalTargetRef,
+        approvalRunIds: activeApprovalRunIds,
       }, groupStepIds, false, targetSkippedIds)
       await finalizeRunScope(basePath, runId, resolveRequestRunStatus(result), `group:${body.groupId}`)
+      if (result.waiting.length > 0 || result.executed.some(entry => entry.status === 'BLOCKED')) await releaseApprovalClaims(basePath, runId)
+      else await retireApprovalClaims(basePath, runId)
       await auditLog('run.group', body.groupId, { runId, count: result.executed.length }, result.success ? 'ok' : 'failed')
       return NextResponse.json(result)
     }
@@ -1053,8 +1070,11 @@ export async function POST(request: Request) {
       confirmPolicy: body.confirmPolicy === true,
       policyConfig,
       approvalTargetRef,
+      approvalRunIds: activeApprovalRunIds,
     }, undefined, true, targetSkippedIds)
     await finalizeRunScope(basePath, runId, resolveRequestRunStatus(result), 'mode:runnable')
+    if (result.waiting.length > 0 || result.executed.some(entry => entry.status === 'BLOCKED')) await releaseApprovalClaims(basePath, runId)
+    else await retireApprovalClaims(basePath, runId)
     await auditLog('run.runnable', '*', { runId, count: result.executed.length }, result.success ? 'ok' : 'failed')
     return NextResponse.json(result)
   } catch (error) {

@@ -82,6 +82,7 @@ export interface RunScope {
   runDiscussion?: string
   parentRunId: string | null
   childIndex: number | null
+  approvalClaimedByRunId?: string | null
 }
 
 export interface RunEventPayloadByType {

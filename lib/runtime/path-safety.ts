@@ -1,4 +1,5 @@
 import { realpath } from 'fs/promises'
+import { dirname } from 'path'
 import { isAbsolute, relative, resolve } from 'path'
 
 function isPathInsideBase(basePath: string, candidatePath: string): boolean {
@@ -42,4 +43,33 @@ export async function resolveExistingPathWithinBase(basePath: string, inputPath:
     throw new Error(`${label} must stay within the workspace`)
   }
   return canonicalTarget
+}
+
+async function realpathNearestExistingParent(path: string): Promise<string> {
+  let current = path
+  while (true) {
+    try {
+      return await realpath(current)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      const parent = dirname(current)
+      if (parent === current) throw error
+      current = parent
+    }
+  }
+}
+
+export async function resolveWritablePathWithinBase(basePath: string, inputPath: string, label = 'path'): Promise<string> {
+  const lexicalTarget = resolveAbsoluteOrWithinBase(basePath, inputPath, label)
+  const canonicalBase = await realpath(resolve(basePath))
+  try {
+    const canonicalTarget = await realpath(lexicalTarget)
+    if (!isPathInsideBase(canonicalBase, canonicalTarget)) throw new Error(`${label} must stay within the workspace`)
+    return lexicalTarget
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
+  const canonicalParent = await realpathNearestExistingParent(dirname(lexicalTarget))
+  if (!isPathInsideBase(canonicalBase, canonicalParent)) throw new Error(`${label} must stay within the workspace`)
+  return lexicalTarget
 }

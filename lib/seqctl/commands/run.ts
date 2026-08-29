@@ -19,7 +19,7 @@ import type { Step, Sequence, StepStatus } from '../../sequence/schema'
 import { ROOT_THREAD_SURFACE_ID } from '../../thread-surfaces/constants'
 import { readThreadSurfaceState, withThreadSurfaceStateRevision, writeThreadSurfaceState } from '../../thread-surfaces/repository'
 import { completeRun, createReplacementRun, createRootThreadSurfaceRun } from '../../thread-surfaces/mutations'
-import { findApprovedActiveRunId, retireApprovalRun } from '../../approvals/active-run'
+import { claimApprovedActiveRunId, findApprovedActiveRunId, releaseApprovalClaims, retireApprovalClaims } from '../../approvals/active-run'
 import { beginStepRunIfSurfaceExists, finalizeStepRunWithRuntimeEvents, type StepRunScope } from '../../thread-surfaces/step-run-runtime'
 import { readRuntimeEventLog, type RuntimeDelegationEvent } from '../../thread-surfaces/runtime-event-log'
 import { provisionAllChildSequences } from '../../thread-surfaces/provision-child-sequence'
@@ -139,6 +139,7 @@ async function executeStepActions(
   runId: string,
   runtime: CLIRunRuntime,
   approvalRunId: string | null = null,
+  policyConfirmed = false,
   actions: Array<Record<string, unknown>> = (step.actions ?? []) as Array<Record<string, unknown>>,
 ): Promise<void> {
   for (const action of actions) {
@@ -150,7 +151,7 @@ async function executeStepActions(
       const nestedActions = Array.isArray(branchActions)
         ? branchActions.filter((candidate): candidate is Record<string, unknown> => !!candidate && typeof candidate === 'object')
         : []
-      await executeStepActions(basePath, sequence, step, runId, runtime, approvalRunId, nestedActions)
+      await executeStepActions(basePath, sequence, step, runId, runtime, approvalRunId, policyConfirmed, nestedActions)
       continue
     }
 
@@ -195,6 +196,7 @@ async function executeStepActions(
 
     await executeNativeOperationalAction(basePath, sequence, step, runId, {
       ...runtime,
+      policyConfirmed,
       runComposioTool: runtime.runComposioTool ?? executeComposioTool,
     }, action)
   }
@@ -246,6 +248,14 @@ async function findReusableRunApprovalId(basePath: string, sequence: Sequence, s
     ? requirements.map(requirement => requirement.targetRef)
     : [`step:${step.id}`]
   return findApprovedActiveRunId(basePath, targets, 'run')
+}
+
+async function claimReusableRunApprovalId(basePath: string, sequence: Sequence, step: Step, claimantRunId: string): Promise<string | null> {
+  const requirements = await collectApprovalRequirements(basePath, sequence, step)
+  const targets = requirements.length > 0
+    ? requirements.map(requirement => requirement.targetRef)
+    : [`step:${step.id}`]
+  return claimApprovedActiveRunId(basePath, targets, claimantRunId, 'run')
 }
 
 
@@ -333,6 +343,16 @@ async function getDirectRunPrecheckResult(basePath: string, stepId: string, runI
   const step = latestSequence.steps.find(candidate => candidate.id === stepId)
   if (!step) {
     throw new StepNotFoundError(stepId)
+  }
+
+  if (step.status === 'SKIPPED') {
+    return {
+      success: false,
+      stepId,
+      runId,
+      status: 'SKIPPED',
+      error: `Step '${stepId}' is already durably skipped`,
+    }
   }
 
   if (step.status !== 'READY' && step.status !== 'BLOCKED') {
@@ -446,7 +466,7 @@ async function executeSingleStep(
 
   // Update status to RUNNING
   const policyConfig = (await PolicyEngine.load(basePath)).getConfig()
-  const approvalRunId = step.status === 'BLOCKED' ? await findReusableRunApprovalId(basePath, sequence, step) : null
+  const approvalRunId = step.status === 'BLOCKED' ? await claimReusableRunApprovalId(basePath, sequence, step, runId) : null
   const approvalPresent = approvalRunId != null
   const currentSurfaceState = await readThreadSurfaceState(basePath)
   const surface = currentSurfaceState.threadSurfaces.find(candidate => candidate.id === getSurfaceId(step))
@@ -474,7 +494,6 @@ async function executeSingleStep(
     }
   }
 
-  if (approvalRunId) await retireApprovalRun(basePath, approvalRunId)
   step.status = 'RUNNING'
   await writeSequence(basePath, sequence)
 
@@ -487,7 +506,7 @@ async function executeSingleStep(
     const surfaceId = getSurfaceId(step)
     const startedAt = stepRuntime.stepRun?.startedAt ?? new Date().toISOString()
     const inputManifest = makeStepInputManifest(step, runId, surfaceId, startedAt)
-    await executeStepActions(basePath, sequence, step, runId, runtime, approvalRunId)
+    await executeStepActions(basePath, sequence, step, runId, runtime, approvalRunId, approvalRunId != null)
     const preparedPrompt = await prepareStepPromptForDispatch({
       stepId,
       step,
@@ -686,6 +705,8 @@ async function handleRunStep(
   const precheckResult = await getDirectRunPrecheckResult(basePath, stepId, runId)
   const result = precheckResult ?? await executeSingleStep(basePath, sequence, stepId, runId, mprocsClient)
   await finalizeRootRunScopeForCommand(basePath, runId, result.status === 'BLOCKED' ? 'pending' : result.success ? 'successful' : 'failed', `step:${stepId}`)
+  if (result.status === 'BLOCKED') await releaseApprovalClaims(basePath, runId)
+  else await retireApprovalClaims(basePath, runId)
 
   const mprocsMap = await readMprocsMap(basePath)
   const processIndex = Object.keys(mprocsMap).length
@@ -767,10 +788,17 @@ async function handleRunRunnable(
     if (progressAfter <= progressBefore) throw new Error('run runnable made no progress')
   }
 
-  const result: RunRunnableResult = executed.length === 0 && skipped.size === 0 && waiting.size === 0
-    ? { success: true, executed, skipped: Array.from(skipped), waiting: Array.from(waiting), error: 'No runnable steps found' }
-    : { success: executed.every(e => e.success), executed, skipped: Array.from(skipped), waiting: Array.from(waiting) }
-  await finalizeRootRunScopeForCommand(basePath, runId, executed.some(entry => entry.status === 'BLOCKED') ? 'pending' : result.success ? 'successful' : 'failed', 'mode:runnable')
+  const finalSequence = await readSequence(basePath)
+  for (const step of finalSequence.steps) {
+    if (step.status === 'BLOCKED' && !alreadyExecuted.has(step.id)) waiting.add(step.id)
+  }
+  const noWork = executed.length === 0 && skipped.size === 0 && waiting.size === 0
+  const result: RunRunnableResult = noWork
+    ? { success: true, executed, skipped: Array.from(skipped), waiting: [], error: 'No runnable steps found' }
+    : { success: executed.every(e => e.success) && waiting.size === 0, executed, skipped: Array.from(skipped), waiting: Array.from(waiting) }
+  await finalizeRootRunScopeForCommand(basePath, runId, waiting.size > 0 ? 'pending' : result.success ? 'successful' : 'failed', 'mode:runnable')
+  if (waiting.size > 0) await releaseApprovalClaims(basePath, runId)
+  else await retireApprovalClaims(basePath, runId)
   outputRunnableResult(result, options)
 }
 
@@ -871,13 +899,19 @@ async function handleRunGroup(
     }
   }
 
+  const finalSequence = await readSequence(basePath)
+  for (const step of finalSequence.steps) {
+    if (groupStepIds.has(step.id) && step.status === 'BLOCKED' && !executed.some(entry => entry.stepId === step.id)) waiting.add(step.id)
+  }
   const result: RunRunnableResult = {
-    success: executed.every(e => e.success),
+    success: executed.every(e => e.success) && waiting.size === 0,
     executed,
     skipped: Array.from(skipped),
     waiting: Array.from(waiting),
   }
-  await finalizeRootRunScopeForCommand(basePath, runId, executed.some(entry => entry.status === 'BLOCKED') ? 'pending' : result.success ? 'successful' : 'failed', `group:${groupId}`)
+  await finalizeRootRunScopeForCommand(basePath, runId, waiting.size > 0 ? 'pending' : result.success ? 'successful' : 'failed', `group:${groupId}`)
+  if (waiting.size > 0) await releaseApprovalClaims(basePath, runId)
+  else await retireApprovalClaims(basePath, runId)
 
   if (options.json) {
     console.log(JSON.stringify(result))

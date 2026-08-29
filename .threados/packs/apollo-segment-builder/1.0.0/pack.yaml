@@ -122,8 +122,10 @@ steps:
   - id: run_health_check
     type: cli
     config:
-      command: python ${THREADOS_STATE_MANAGER_PATH}
-        health-check
+      executable: python
+      arguments:
+        - ${THREADOS_STATE_MANAGER_PATH}
+        - health-check
     output_key: health
     retry:
       max_attempts: 2
@@ -147,9 +149,16 @@ steps:
   - id: register
     type: cli
     config:
-      command: python ${THREADOS_STATE_MANAGER_PATH}
-        register-agent --name "apollo_segment_builder" --channels "multi_platform"
-        --capabilities "segment_building,apollo_discovery,contact_enrichment,apollo_stage_tagging"
+      executable: python
+      arguments:
+        - ${THREADOS_STATE_MANAGER_PATH}
+        - register-agent
+        - --name
+        - apollo_segment_builder
+        - --channels
+        - multi_platform
+        - --capabilities
+        - segment_building,apollo_discovery,contact_enrichment,apollo_stage_tagging
     on_failure: warn
 - id: pre-session
   name: Pre-Session State Load
@@ -166,29 +175,49 @@ steps:
   - id: pre_session_check
     type: cli
     config:
-      command: python ${THREADOS_STATE_MANAGER_PATH}
-        pre-session-check --agent "apollo_segment_builder"
+      executable: python
+      arguments:
+        - ${THREADOS_STATE_MANAGER_PATH}
+        - pre-session-check
+        - --agent
+        - apollo_segment_builder
     output_key: session_state
     on_failure: warn
   - id: get_messages
     type: cli
     config:
-      command: python ${THREADOS_STATE_MANAGER_PATH}
-        get-messages --agent "apollo_segment_builder"
+      executable: python
+      arguments:
+        - ${THREADOS_STATE_MANAGER_PATH}
+        - get-messages
+        - --agent
+        - apollo_segment_builder
     output_key: agent_messages
     on_failure: warn
   - id: recall_memories
     type: cli
     config:
-      command: python ${THREADOS_STATE_MANAGER_PATH}
-        recall --agent "apollo_segment_builder" --limit 20
+      executable: python
+      arguments:
+        - ${THREADOS_STATE_MANAGER_PATH}
+        - recall
+        - --agent
+        - apollo_segment_builder
+        - --limit
+        - "20"
     output_key: memories
     on_failure: skip
   - id: load_knowledge
     type: cli
     config:
-      command: python ${THREADOS_STATE_MANAGER_PATH}
-        query-knowledge --category "outreach" --tags "segment,icp"
+      executable: python
+      arguments:
+        - ${THREADOS_STATE_MANAGER_PATH}
+        - query-knowledge
+        - --category
+        - outreach
+        - --tags
+        - segment,icp
     output_key: knowledge
     on_failure: skip
 - id: setup-workspace
@@ -211,7 +240,10 @@ steps:
     type: cli
     description: Capture the optional Telegram target from the local runtime environment
     config:
-      command: 'if [ -n "${THREADOS_TELEGRAM_CHAT_ID:-}" ]; then printf "%s" "$THREADOS_TELEGRAM_CHAT_ID"; fi'
+      executable: node
+      arguments:
+        - -e
+        - "process.stdout.write(process.env.THREADOS_TELEGRAM_CHAT_ID ?? '')"
     output_key: telegram_chat_id
     on_failure: skip
 - id: input-collection
@@ -642,10 +674,22 @@ steps:
     type: cli
     description: Upsert contact node + WORKS_AT company relationship in FalkorDB
     config:
-      command: python ${THREADOS_STATE_MANAGER_PATH}
-        upsert-contact --email "{{item.email}}" --name "{{item.name}}" --title "{{item.title}}"
-        --company-name "{{item.company}}" --persona-lane "{{item.persona_lane}}" --classification
-        "{{item.classification_or_COOL}}"
+      executable: python
+      arguments:
+        - ${THREADOS_STATE_MANAGER_PATH}
+        - upsert-contact
+        - --email
+        - '{{item.email}}'
+        - --name
+        - '{{item.name}}'
+        - --title
+        - '{{item.title}}'
+        - --company-name
+        - '{{item.company}}'
+        - --persona-lane
+        - '{{item.persona_lane}}'
+        - --classification
+        - '{{item.classification_or_COOL}}'
     on_failure: warn
 - id: signal-agents
   name: Signal Downstream Agents
@@ -663,9 +707,18 @@ steps:
   - id: post_signal
     type: cli
     config:
-      command: python ${THREADOS_STATE_MANAGER_PATH}
-        post-message --from-agent "apollo_segment_builder" --to-agent "{{item}}" --type
-        "SEGMENT_BUILT" --payload '{"segment_name":"{{icp_config.segment_name}}","apollo_stage_name":"{{icp_config.output.apollo_stage_name}}","apollo_stage_id":"{{resolved_stage_id}}","contacts":{{approved_segment.contacts.length}},"persona_split":{{counts.persona_split}}}'
+      executable: python
+      arguments:
+        - ${THREADOS_STATE_MANAGER_PATH}
+        - post-message
+        - --from-agent
+        - apollo_segment_builder
+        - --to-agent
+        - '{{item}}'
+        - --type
+        - SEGMENT_BUILT
+        - --payload
+        - '{"segment_name":"{{icp_config.segment_name}}","apollo_stage_name":"{{icp_config.output.apollo_stage_name}}","apollo_stage_id":"{{resolved_stage_id}}","contacts":{{approved_segment.contacts.length}},"persona_split":{{counts.persona_split}}}'
     on_failure: warn
 - id: remember-learnings
   name: Remember Segment Learnings
@@ -682,12 +735,18 @@ steps:
   - id: remember_cmd
     type: cli
     config:
-      command: 'python ${THREADOS_STATE_MANAGER_PATH}
-        remember --key "segment_{{icp_config.segment_name}}" --content "Built segment
-        with {{approved_segment.contacts.length}} contacts. Sources: saved {{counts.saved}},
-        discovery {{counts.discovery}}. Top industries: {{counts.industries}}. Top
-        geographies: {{counts.geographies}}. Apollo stage: {{icp_config.output.apollo_stage_name}}."
-        --tags "segment,icp,apollo" --agent "apollo_segment_builder"'
+      executable: python
+      arguments:
+        - ${THREADOS_STATE_MANAGER_PATH}
+        - remember
+        - --key
+        - 'segment_{{icp_config.segment_name}}'
+        - --content
+        - 'Built segment with {{approved_segment.contacts.length}} contacts. Sources: saved {{counts.saved}}, discovery {{counts.discovery}}. Top industries: {{counts.industries}}. Top geographies: {{counts.geographies}}. Apollo stage: {{icp_config.output.apollo_stage_name}}.'
+        - --tags
+        - segment,icp,apollo
+        - --agent
+        - apollo_segment_builder
     on_failure: skip
 - id: display-summary
   name: Display Summary
@@ -704,18 +763,11 @@ steps:
   - id: compile_summary
     type: cli
     config:
-      command: "echo '=== APOLLO SEGMENT BUILT ===\nTime: {{timestamp}}\nSegment:\
-        \ {{icp_config.segment_name}}\n\nSOURCES:\n  - Saved contacts: {{counts.saved}}\n\
-        \  - Discovery: {{counts.discovery}}\n  - Both: {{counts.both}}\n\nQUALIFIED:\
-        \ {{qualified_segment.total_qualified}}\nAPPROVED: {{approved_segment.contacts.length}}\n\
-        \nEXCLUDED:\n  - DNC: {{excluded.dnc}}\n  - Recently contacted: {{excluded.recently_contacted}}\n\
-        \  - Existing pipeline: {{excluded.existing_pipeline}}\n  - Special handling:\
-        \ {{excluded.special_handling}}\n  - Non-Omar owned: {{excluded.non_omar_owned}}\n\
-        \  - Duplicates: {{excluded.duplicates}}\n\nAPOLLO:\n  - Credits used: {{enriched_segment.credits_used}}\n\
-        \  - Credits remaining: {{enriched_segment.credits_remaining}}\n  - Stage\
-        \ tagged: {{icp_config.output.apollo_stage_name}} ({{counts.stage_updates}})\n\
-        \  - New contacts created: {{counts.created}}\n\nSIGNALED: {{icp_config.output.signal_to_agents}}\n\
-        ==='"
+      executable: node
+      arguments:
+        - -e
+        - "process.stdout.write(process.argv[1] ?? '')"
+        - "=== APOLLO SEGMENT BUILT ===\nTime: {{timestamp}}\nSegment: {{icp_config.segment_name}}\n\nSOURCES:\n  - Saved contacts: {{counts.saved}}\n  - Discovery: {{counts.discovery}}\n  - Both: {{counts.both}}\n\nQUALIFIED: {{qualified_segment.total_qualified}}\nAPPROVED: {{approved_segment.contacts.length}}\n\nEXCLUDED:\n  - DNC: {{excluded.dnc}}\n  - Recently contacted: {{excluded.recently_contacted}}\n  - Existing pipeline: {{excluded.existing_pipeline}}\n  - Special handling: {{excluded.special_handling}}\n  - Non-Omar owned: {{excluded.non_omar_owned}}\n  - Duplicates: {{excluded.duplicates}}\n\nAPOLLO:\n  - Credits used: {{enriched_segment.credits_used}}\n  - Credits remaining: {{enriched_segment.credits_remaining}}\n  - Stage tagged: {{icp_config.output.apollo_stage_name}} ({{counts.stage_updates}})\n  - New contacts created: {{counts.created}}\n\nSIGNALED: {{icp_config.output.signal_to_agents}}\n==="
     on_failure: warn
 - id: telegram-summary
   name: Telegram Alert
@@ -766,14 +818,24 @@ steps:
   - id: log_session_cmd
     type: cli
     config:
-      command: 'python ${THREADOS_STATE_MANAGER_PATH}
-        log-session --session-id "apollo-segment-{{date}}-{{time}}" --agent-name "apollo_segment_builder"
-        --skills-run "segment_building,apollo_saved_search,apollo_discovery,apollo_enrichment,apollo_stage_tagging"
-        --contacts-processed {{qualified_segment.total_qualified}} --interactions-logged
-        0 --follow-ups-created 0 --summary "Built segment ''{{icp_config.segment_name}}'':
-        {{approved_segment.contacts.length}} contacts approved from {{qualified_segment.total_qualified}}
-        qualified (saved: {{counts.saved}}, discovery: {{counts.discovery}}). Credits
-        used: {{enriched_segment.credits_used}}."'
+      executable: python
+      arguments:
+        - ${THREADOS_STATE_MANAGER_PATH}
+        - log-session
+        - --session-id
+        - 'apollo-segment-{{date}}-{{time}}'
+        - --agent-name
+        - apollo_segment_builder
+        - --skills-run
+        - segment_building,apollo_saved_search,apollo_discovery,apollo_enrichment,apollo_stage_tagging
+        - --contacts-processed
+        - '{{qualified_segment.total_qualified}}'
+        - --interactions-logged
+        - "0"
+        - --follow-ups-created
+        - "0"
+        - --summary
+        - "Built segment '{{icp_config.segment_name}}': {{approved_segment.contacts.length}} contacts approved from {{qualified_segment.total_qualified}} qualified (saved: {{counts.saved}}, discovery: {{counts.discovery}}). Credits used: {{enriched_segment.credits_used}}."
     on_failure: warn
   - id: cleanup
     type: cli

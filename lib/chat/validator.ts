@@ -474,6 +474,7 @@ const actionAppliers: Record<string, ActionApplier> = {
       existing.fusion_synth = true
       existing.type = 'f'
       existing.kind = 'f'
+      existing.depends_on = Array.from(new Set([...existing.depends_on, ...candidateIds.map(String)]))
     }
     return null
   },

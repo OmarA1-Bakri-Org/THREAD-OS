@@ -962,6 +962,42 @@ describe.serial('run route coverage — error handling', () => {
     expect(data.error).toContain('not found')
   })
 
+  test('POST with stepId cannot dispatch while a step dependency is incomplete', async () => {
+    let dispatchCalls = 0
+    globalThis.__THREADOS_RUN_ROUTE_RUNTIME__ = {
+      ...createMockRuntime(),
+      dispatch: async (...args) => {
+        dispatchCalls += 1
+        return createMockRuntime().dispatch(...args)
+      },
+    }
+    await setupTestSequence({
+      version: '1.0',
+      name: 'blocked-by-step-dependency-seq',
+      steps: [
+        { id: 'dependency-step', name: 'Dependency', type: 'base', model: 'codex', prompt_file: '.threados/prompts/dependency-step.md', depends_on: [], status: 'READY' },
+        { id: 'target-step', name: 'Target', type: 'base', model: 'codex', prompt_file: '.threados/prompts/target-step.md', depends_on: ['dependency-step'], status: 'READY' },
+      ],
+      gates: [],
+    })
+    await writePrompt('dependency-step')
+    await writePrompt('target-step')
+
+    const { POST } = await import('@/app/api/run/route')
+    const res = await POST(new Request('http://localhost/api/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: confirmedBody({ stepId: 'target-step' }),
+    }))
+
+    expect(res.status).toBe(200)
+    const data = await res.json()
+    expect(data.success).toBe(false)
+    expect(data.status).toBe('BLOCKED')
+    expect(data.gateReasons).toContain('DEP_MISSING')
+    expect(dispatchCalls).toBe(0)
+  })
+
   test('POST with stepId blocked by unresolved dependency gate returns BLOCKED and persists blocked status', async () => {
     await setupTestSequence({
       version: '1.0',

@@ -21,23 +21,66 @@ function runtime(overrides: Partial<NativeActionRuntime> = {}): NativeActionRunt
       stepId: config.stepId, runId: config.runId, exitCode: 0, status: 'SUCCESS', duration: 1,
       stdout: '{"id":"payload-1"}', stderr: '', startTime: new Date(), endTime: new Date(),
     }),
+    policyConfirmed: true,
     ...overrides,
   } as NativeActionRuntime
 }
 
 describe('native action runtime contracts', () => {
-  test('renders CLI command templates, uses a non-login shell, and persists the payload for output_key', async () => {
+  test('renders structured CLI arguments without treating runtime values as shell source and persists the payload for output_key', async () => {
     await writeRuntimeContext(basePath, { resolved_stage_id: 'stage-42' })
+    let capturedCommand = ''
     let capturedArgs: string[] = []
     await executeNativeOperationalAction(basePath, sequence, step, 'run-1', runtime({
       runStep: async config => {
+        capturedCommand = config.command
         capturedArgs = config.args ?? []
         return { stepId: config.stepId, runId: config.runId, exitCode: 0, status: 'SUCCESS', duration: 1, stdout: '{"id":"payload-1"}', stderr: '', startTime: new Date(), endTime: new Date() }
       },
-    }), { id: 'cli', type: 'cli', config: { command: 'echo {{resolved_stage_id}}' }, output_key: 'cli_result' })
+    }), { id: 'cli', type: 'cli', config: { executable: 'echo', arguments: ['{{resolved_stage_id}}'] }, output_key: 'cli_result' })
 
-    expect(capturedArgs).toEqual(['-c', 'echo stage-42'])
+    expect(capturedCommand).toBe('echo')
+    expect(capturedArgs).toEqual(['stage-42'])
     expect((await readRuntimeContext(basePath)).cli_result).toEqual({ id: 'payload-1' })
+  })
+
+
+  test('rejects runtime interpolation inside shell source commands', async () => {
+    await writeRuntimeContext(basePath, { item: { name: 'x; touch pwned' } })
+    await expect(executeNativeOperationalAction(basePath, sequence, step, 'run-shell-injection', runtime(), {
+      id: 'unsafe-cli', type: 'cli', config: { command: 'echo {{item.name}}' },
+    })).rejects.toThrow('structured executable')
+  })
+
+  test('persists null for an output_key when a CLI action emits no stdout', async () => {
+    await executeNativeOperationalAction(basePath, sequence, step, 'run-empty-output', runtime({
+      runStep: async config => ({
+        stepId: config.stepId, runId: config.runId, exitCode: 0, status: 'SUCCESS', duration: 1,
+        stdout: '', stderr: '', startTime: new Date(), endTime: new Date(),
+      }),
+    }), { id: 'empty-cli', type: 'cli', config: { executable: 'echo', arguments: [] }, output_key: 'telegram_chat_id' })
+    expect((await readRuntimeContext(basePath)).telegram_chat_id).toBeNull()
+  })
+
+  test('applies command policy before a native CLI action executes', async () => {
+    const { mkdir, writeFile } = await import('fs/promises')
+    await mkdir(join(basePath, '.threados'), { recursive: true })
+    await writeFile(join(basePath, '.threados', 'policy.yaml'), 'mode: POWER\nforbidden_patterns:\n  - blocked-command\n')
+    let calls = 0
+    await expect(executeNativeOperationalAction(basePath, sequence, step, 'run-policy', runtime({
+      runStep: async config => { calls += 1; return { stepId: config.stepId, runId: config.runId, exitCode: 0, status: 'SUCCESS', duration: 1, stdout: '', stderr: '', startTime: new Date(), endTime: new Date() } },
+    }), { id: 'blocked-cli', type: 'cli', config: { executable: 'blocked-command', arguments: [] } })).rejects.toThrow('policy')
+    expect(calls).toBe(0)
+  })
+
+  test('requires explicit SAFE confirmation before a native CLI action executes', async () => {
+    let calls = 0
+    const unconfirmed = { ...runtime(), policyConfirmed: false } as NativeActionRuntime
+    await expect(executeNativeOperationalAction(basePath, sequence, step, 'run-confirmation', {
+      ...unconfirmed,
+      runStep: async config => { calls += 1; return { stepId: config.stepId, runId: config.runId, exitCode: 0, status: 'SUCCESS', duration: 1, stdout: '', stderr: '', startTime: new Date(), endTime: new Date() } },
+    }, { id: 'safe-cli', type: 'cli', config: { executable: process.execPath, arguments: ['-e', 'process.exit(0)'] } })).rejects.toThrow('explicit confirmation')
+    expect(calls).toBe(0)
   })
 
   test('renders nested Composio arguments from hydrated runtime context', async () => {

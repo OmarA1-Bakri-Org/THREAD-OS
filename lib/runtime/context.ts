@@ -449,17 +449,44 @@ function evaluateAtomicRuntimeCondition(expression: string, context: RuntimeCont
   throw new Error(`Unsupported runtime condition expression: '${normalized}'`)
 }
 
+function splitConditionClauses(expression: string): string[] {
+  const clauses: string[] = []
+  let current = ''
+  let quote: "'" | '"' | null = null
+  let escaped = false
+  const isBoundary = (value: string | undefined) => value == null || /\s/.test(value)
+
+  for (let index = 0; index < expression.length; index += 1) {
+    const char = expression[index]
+    if (quote) {
+      current += char
+      if (escaped) { escaped = false; continue }
+      if (char === '\\') { escaped = true; continue }
+      if (char === quote) quote = null
+      continue
+    }
+    if (char === "'" || char === '"') { quote = char; current += char; continue }
+    if (isBoundary(expression[index - 1]) && expression.startsWith('OR', index) && isBoundary(expression[index + 2])) {
+      throw new Error(`Unsupported runtime condition expression: '${expression}'`)
+    }
+    if (isBoundary(expression[index - 1]) && expression.startsWith('AND', index) && isBoundary(expression[index + 3])) {
+      if (!current.trim()) throw new Error(`Unsupported runtime condition expression: '${expression}'`)
+      clauses.push(current.trim())
+      current = ''
+      index += 2
+      continue
+    }
+    current += char
+  }
+  if (quote || !current.trim()) throw new Error(`Unsupported runtime condition expression: '${expression}'`)
+  clauses.push(current.trim())
+  return clauses
+}
+
 export function evaluateRuntimeCondition(expression: string, context: RuntimeContext): boolean {
   const normalized = expression.trim()
   if (!normalized) return true
-  if (/\s+OR\s+/.test(normalized)) {
-    throw new Error(`Unsupported runtime condition expression: '${normalized}'`)
-  }
-  const clauses = normalized.split(/\s+AND\s+/)
-  if (clauses.some(clause => clause.trim().length === 0)) {
-    throw new Error(`Unsupported runtime condition expression: '${normalized}'`)
-  }
-  return clauses.every(clause => evaluateAtomicRuntimeCondition(clause, context))
+  return splitConditionClauses(normalized).every(clause => evaluateAtomicRuntimeCondition(clause, context))
 }
 
 export async function evaluateSequenceCondition(basePath: string, sequence: Sequence, expression?: string | null): Promise<boolean> {

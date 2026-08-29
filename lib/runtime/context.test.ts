@@ -86,6 +86,12 @@ describe('runtime condition evaluation', () => {
     })).toThrow('Unsupported runtime condition')
   })
 
+  test('does not split logical operator words inside quoted literals', () => {
+    const context = { label: 'sales AND marketing', alt: 'sales OR marketing', enabled: true }
+    expect(evaluateRuntimeCondition(`label == 'sales AND marketing' AND enabled == true`, context)).toBe(true)
+    expect(evaluateRuntimeCondition(`alt == 'sales OR marketing'`, context)).toBe(true)
+  })
+
   test('throws when a condition-critical runtime value has the wrong type', () => {
     expect(() => evaluateRuntimeCondition('icp_config.sources.length == 2', {
       icp_config: {

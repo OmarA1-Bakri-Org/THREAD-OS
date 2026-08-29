@@ -52,6 +52,7 @@ describe('run step native action execution', () => {
     })
 
     await writeTestSequence(tempDir, seq)
+    await writeFile(join(tempDir, '.threados/policy.yaml'), 'mode: POWER\nside_effect_mode: free\n', 'utf-8')
     await writeFile(join(tempDir, '.threados/prompts/native-actions.md'), '# native actions')
     await writeFile(
       join(tempDir, '.threados/state/runtime-context.json'),
@@ -182,6 +183,7 @@ describe('run step native action execution', () => {
     })
 
     await writeTestSequence(tempDir, seq)
+    await writeFile(join(tempDir, '.threados/policy.yaml'), 'mode: POWER\nside_effect_mode: free\n', 'utf-8')
     await writeFile(join(tempDir, '.threados/prompts/protected-runtime-key.md'), '# protected key')
     await writeFile(
       join(tempDir, '.threados/state/runtime-context.json'),
@@ -650,6 +652,24 @@ describe('run runnable — no runnable steps', () => {
     expect(updatedSequence.steps.find(step => step.id === 'conditional-step')?.status).toBe('SKIPPED')
   })
 
+  test('run step never dispatches a step that is already durably SKIPPED', async () => {
+    const seq = makeSequence({ steps: [makeStep({ id: 'already-skipped', status: 'SKIPPED', model: 'shell', prompt_file: '.threados/prompts/already-skipped.md' })] })
+    await writeTestSequence(tempDir, seq)
+    await writeFile(join(tempDir, '.threados/prompts/already-skipped.md'), 'echo should-not-run')
+    let dispatchCalls = 0
+    globalThis.__THREADOS_CLI_RUN_RUNTIME__ = {
+      dispatch: async (_model, opts) => { dispatchCalls += 1; return { stepId: opts.stepId, runId: opts.runId, command: process.execPath, args: ['-e', 'process.exit(0)'], cwd: opts.cwd, timeout: opts.timeout } },
+      runStep: executeProcess,
+      saveRunArtifacts: async () => '.threados/runs/mock',
+    }
+    const logs: string[] = []; const origLog = console.log; console.log = (msg: string) => logs.push(msg)
+    await runCommand('step', ['already-skipped'], { ...jsonOpts, basePath: tempDir })
+    console.log = origLog
+    const output = JSON.parse(logs[0])
+    expect(output.status).toBe('SKIPPED')
+    expect(dispatchCalls).toBe(0)
+  })
+
   test('marks false-condition optional steps as SKIPPED and continues downstream mandatory work', async () => {
     const dispatchOrder: string[] = []
     const seq = makeSequence({
@@ -817,6 +837,19 @@ describe('run runnable — no runnable steps', () => {
     await expect(runCommand('runnable', [], { ...jsonOpts, basePath: tempDir })).rejects.toThrow(
       "Runtime context value 'icp_config.sources' must be an array of strings",
     )
+  })
+
+  test('reports non-reopenable BLOCKED work as waiting instead of successful completion', async () => {
+    const seq = makeSequence({ steps: [makeStep({ id: 'still-blocked', status: 'BLOCKED', depends_on: ['pending-gate'] })], gates: [{ id: 'pending-gate', name: 'Pending', depends_on: [], status: 'PENDING', cascade: false, childGateIds: [] }] })
+    await writeTestSequence(tempDir, seq)
+    const logs: string[] = []; const origLog = console.log; console.log = (msg: string) => logs.push(msg)
+    await runCommand('runnable', [], { ...jsonOpts, basePath: tempDir })
+    console.log = origLog
+    const output = JSON.parse(logs[0])
+    expect(output.success).toBe(false)
+    expect(output.waiting).toContain('still-blocked')
+    const state = await readThreadSurfaceState(tempDir)
+    expect(state.runs.at(-1)?.runStatus).toBe('pending')
   })
 
   test('prints human-readable message when no runnable steps', async () => {

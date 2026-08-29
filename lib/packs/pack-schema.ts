@@ -24,8 +24,9 @@ export const PackActionRetrySchema = z.object({
 
 const PackActionConfigBaseSchema = z.object({
   command: z.string().min(1).optional(),
+  executable: z.string().min(1).optional(),
   tool_slug: z.string().min(1).optional(),
-  arguments: z.record(z.string(), z.unknown()).optional(),
+  arguments: z.union([z.record(z.string(), z.unknown()), z.array(z.unknown())]).optional(),
   skill_name: z.string().min(1).optional(),
   file_path: z.string().min(1).optional(),
   prompt: z.string().min(1).optional(),
@@ -47,6 +48,25 @@ const PackActionBaseSchema = z.object({
   on_failure: z.enum(['abort_step', 'abort_workflow', 'skip', 'warn', 'retry']).optional(),
 })
 
+
+function validateActionConfig(action: z.infer<typeof PackActionBaseSchema>, ctx: z.RefinementCtx, path: Array<string | number> = []): void {
+  const config = action.config
+  if (action.type === 'cli') {
+    const hasCommand = typeof config.command === 'string' && config.command.length > 0
+    const hasExecutable = typeof config.executable === 'string' && config.executable.length > 0
+    if (!hasCommand && !hasExecutable) ctx.addIssue({ code: 'custom', path: [...path, 'config'], message: 'CLI action requires config.command or config.executable' })
+    if (hasCommand && hasExecutable) ctx.addIssue({ code: 'custom', path: [...path, 'config'], message: 'CLI action must not declare both config.command and config.executable' })
+    if (hasExecutable && config.arguments != null && !Array.isArray(config.arguments)) ctx.addIssue({ code: 'custom', path: [...path, 'config', 'arguments'], message: 'Structured CLI config.arguments must be an array' })
+    if (hasCommand && /\{\{\s*[A-Za-z0-9_.]+\s*\}\}/.test(config.command as string)) ctx.addIssue({ code: 'custom', path: [...path, 'config', 'command'], message: 'CLI commands with runtime interpolation must use config.executable and config.arguments' })
+  }
+  if (action.type === 'composio_tool' && !(typeof config.tool_slug === 'string' && config.tool_slug.length > 0)) {
+    ctx.addIssue({ code: 'custom', path: [...path, 'config', 'tool_slug'], message: 'Composio action requires config.tool_slug' })
+  }
+  if (action.type === 'conditional' && !(typeof config.condition === 'string' && config.condition.length > 0)) {
+    ctx.addIssue({ code: 'custom', path: [...path, 'config', 'condition'], message: 'Conditional action requires config.condition' })
+  }
+}
+
 function validateConditionalBranches(
   action: z.infer<typeof PackActionBaseSchema>,
   ctx: z.RefinementCtx,
@@ -64,13 +84,17 @@ function validateConditionalBranches(
         }
         return
       }
+      validateActionConfig(parsed.data, ctx, [...path, 'config', branchName, index])
       validateConditionalBranches(parsed.data, ctx, [...path, 'config', branchName, index])
     })
   }
 }
 
 export const PackActionConfigSchema = PackActionConfigBaseSchema
-export const PackActionSchema = PackActionBaseSchema.superRefine((action, ctx) => validateConditionalBranches(action, ctx))
+export const PackActionSchema = PackActionBaseSchema.superRefine((action, ctx) => {
+  validateActionConfig(action, ctx)
+  validateConditionalBranches(action, ctx)
+})
 
 export const PackStepSchema = z.object({
   id: packIdSchema('Step'),
