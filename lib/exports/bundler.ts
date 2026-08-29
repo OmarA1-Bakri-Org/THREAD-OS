@@ -92,7 +92,7 @@ export async function generateExportBundle(basePath: string, runId: string): Pro
     trace_events: traceEvents,
     gate_decisions: gateDecisions,
     approvals,
-    artifact_manifests: artifactManifestPaths.map(path => relative(basePath, path)),
+    artifact_manifests: artifactManifestPaths.map(path => relative(basePath, path).replace(/\\/g, '/')),
     timing_summary: summarizeTiming(stepStatuses),
     cost_summary: null,
     exported_at: new Date().toISOString(),

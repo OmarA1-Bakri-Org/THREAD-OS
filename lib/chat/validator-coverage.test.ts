@@ -655,3 +655,20 @@ describe('computeUnifiedDiff via dryRun', () => {
     expect(contextLines.length).toBeGreaterThan(0)
   })
 })
+
+test('fusion validation merges new candidate dependencies into an existing synth idempotently', async () => {
+  const { readSequence } = await import('../sequence/parser')
+  const seeded = freshBaseSequence()
+  seeded.steps.push({
+    id: 'synth-existing', name: 'Existing Synth', kind: 'f', type: 'f', model: 'claude-code',
+    prompt_file: '.threados/prompts/synth-existing.md', depends_on: ['step-1'], status: 'READY', fusion_synth: true,
+  })
+  await writeSequence(testDir, seeded)
+  const validator = new ActionValidator(testDir)
+  const result = await validator.apply([
+    { command: 'fusion create', args: { candidate_ids: ['step-1', 'step-2'], synth_id: 'synth-existing' } },
+  ])
+  expect(result.success).toBe(true)
+  const sequence = await readSequence(testDir)
+  expect(sequence.steps.find(step => step.id === 'synth-existing')?.depends_on).toEqual(['step-1', 'step-2'])
+})

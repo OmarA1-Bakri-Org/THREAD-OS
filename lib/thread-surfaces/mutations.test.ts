@@ -337,6 +337,19 @@ describe('thread surface lifecycle mutations', () => {
     expect(result.run.runSummary).toBeUndefined()
   })
 
+  test('completeRun rejects terminal statuses without endedAt', () => {
+    const state = buildRootState()
+    const active = createReplacementRun(state, {
+      threadSurfaceId: 'thread-root',
+      runId: 'run-terminal-without-end',
+      startedAt: timestamp,
+    }).state
+    expect(() => completeRun(active, {
+      runId: 'run-terminal-without-end',
+      runStatus: 'successful',
+    } as unknown as Parameters<typeof completeRun>[1])).toThrow('endedAt')
+  })
+
   test('completeRun throws when run ID does not exist', () => {
     expect(() =>
       completeRun(buildRootState(), {

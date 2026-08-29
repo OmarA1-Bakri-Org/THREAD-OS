@@ -45,12 +45,9 @@ interface CreateReplacementRunArgs {
   executionIndex?: number
 }
 
-interface CompleteRunArgs {
-  runId: string
-  runStatus: Extract<RunStatus, 'successful' | 'failed'>
-  endedAt: string
-  runSummary?: string
-}
+type CompleteRunArgs =
+  | { runId: string; runStatus: 'pending'; endedAt?: null; runSummary?: string }
+  | { runId: string; runStatus: Extract<RunStatus, 'successful' | 'failed'>; endedAt: string; runSummary?: string }
 
 interface CancelRunArgs {
   runId: string
@@ -304,10 +301,13 @@ export function createReplacementRun(state: ThreadSurfaceState, args: CreateRepl
 }
 
 export function completeRun(state: ThreadSurfaceState, args: CompleteRunArgs) {
+  if (args.runStatus !== 'pending' && !args.endedAt) {
+    throw new Error('Terminal run completion requires endedAt')
+  }
   return mutateRun(state, args.runId, run => ({
     ...run,
     runStatus: args.runStatus,
-    endedAt: args.endedAt,
+    endedAt: args.runStatus === 'pending' ? null : args.endedAt,
     ...(args.runSummary ? { runSummary: args.runSummary } : {}),
   }))
 }

@@ -2,7 +2,7 @@ import { mkdtemp, rm, mkdir, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { tmpdir } from 'os'
 import YAML from 'yaml'
-import type { Sequence } from '../../lib/sequence/schema'
+import type { Sequence, Step } from '../../lib/sequence/schema'
 
 export async function createTempDir(): Promise<string> {
   return mkdtemp(join(tmpdir(), 'threados-test-'))
@@ -28,7 +28,7 @@ export async function writeTestSequence(basePath: string, seq: Sequence): Promis
   await writeFile(join(dir, 'sequence.yaml'), YAML.stringify(seq), 'utf-8')
 }
 
-export function makeStep(overrides: Record<string, unknown> = {}) {
+export function makeStep(overrides: Partial<Step> = {}): Step {
   return {
     id: 'test-step',
     name: 'Test Step',

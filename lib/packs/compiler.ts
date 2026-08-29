@@ -1,5 +1,5 @@
 import { createHash } from 'crypto'
-import type { PackManifest } from './pack-schema'
+import { PackManifestSchema, type PackManifest } from './pack-schema'
 import type { ThreadSurface } from '@/lib/thread-surfaces/types'
 
 export interface CompilePackOptions {
@@ -34,17 +34,35 @@ export interface CompileResult {
       gate_set_ref: string | null
       completion_contract: string | null
       side_effect_class: 'none' | 'read' | 'write' | 'execute'
+      execution?: 'sequential' | 'parallel' | 'sub_agent'
+      condition?: string
+      actions?: unknown[]
       orchestrator?: string
       fusion_candidates?: boolean
       fusion_synth?: boolean
       watchdog_for?: string
       fanout?: number
+      timeout_ms?: number
     }>
     deps: Array<{ step_id: string; dep_id: string }>
     gates: unknown[]
     pack_id: string
     pack_version: string
     default_policy_ref: string | null
+    goal?: string
+    success_criteria?: string[]
+    strategy_options?: Array<{
+      id: string
+      label: string
+      applies_to: string[]
+      selects_steps: string[]
+      suppresses_steps: string[]
+      requires_approval: boolean
+    }>
+    replan_policy?: {
+      enabled: boolean
+      triggers: Array<'empty_artifact' | 'sparse_results'>
+    }
     created_at: string
     updated_at: string
     metadata: {
@@ -66,12 +84,36 @@ function buildSequenceId(manifest: PackManifest, installName: string): string {
 }
 
 export function compilePack(manifest: PackManifest, options: CompilePackOptions = {}): CompileResult {
+  const validatedManifest = PackManifestSchema.parse(manifest)
   const now = new Date().toISOString()
-  const installName = options.installName ?? manifest.name
+  const installName = options.installName ?? validatedManifest.name
   const modelOverrides = options.modelOverrides ?? {}
 
-  const steps = manifest.steps.map(ps => {
-    const promptFile = ps.prompt_file ?? `.threados/prompts/${ps.id}.md`
+  const inferSideEffectClass = (actions: unknown[] | undefined): 'none' | 'read' | 'write' | 'execute' => {
+    if (!actions || actions.length === 0) return 'none'
+    const precedence = { none: 0, read: 1, write: 2, execute: 3 } as const
+    let result: 'none' | 'read' | 'write' | 'execute' = 'none'
+    const elevate = (candidate: typeof result) => { if (precedence[candidate] > precedence[result]) result = candidate }
+
+    for (const value of actions) {
+      if (!value || typeof value !== 'object') continue
+      const action = value as Record<string, unknown>
+      const type = String(action.type ?? '')
+      if (['cli', 'composio_tool', 'sub_agent', 'approval'].includes(type)) return 'execute'
+      if (type === 'write_file') { elevate('write'); continue }
+      if (['read_file', 'skill'].includes(type)) { elevate('read'); continue }
+      if (type === 'conditional') {
+        const config = action.config && typeof action.config === 'object' ? action.config as Record<string, unknown> : {}
+        elevate(inferSideEffectClass(Array.isArray(config.if_true) ? config.if_true : []))
+        elevate(inferSideEffectClass(Array.isArray(config.if_false) ? config.if_false : []))
+      }
+    }
+    return result
+  }
+
+  const steps = validatedManifest.steps.map(ps => {
+    const installedPromptFile = `.threados/prompts/${ps.id}.md`
+    const authoredPromptPath = ps.prompt_file ?? installedPromptFile
     return {
       id: ps.id,
       name: ps.name,
@@ -80,11 +122,11 @@ export function compilePack(manifest: PackManifest, options: CompilePackOptions 
       phase: ps.phase,
       agent_ref: null,
       model: modelOverrides[ps.id] ?? ps.model,
-      prompt_file: promptFile,
+      prompt_file: installedPromptFile,
       prompt_ref: {
         id: ps.id,
         version: 1,
-        path: promptFile,
+        path: authoredPromptPath,
       },
       surface_ref: `thread-${ps.id}`,
       depends_on: ps.depends_on,
@@ -93,16 +135,31 @@ export function compilePack(manifest: PackManifest, options: CompilePackOptions 
       output_contract_ref: null,
       gate_set_ref: manifest.gate_sets[0] ?? null,
       completion_contract: null,
-      side_effect_class: 'none' as const,
+      side_effect_class: inferSideEffectClass(ps.actions),
+      execution: ps.execution,
+      condition: ps.condition,
+      actions: ps.actions,
       orchestrator: ps.orchestrator,
       fusion_candidates: ps.fusion_candidates,
       fusion_synth: ps.fusion_synth,
       watchdog_for: ps.watchdog_for,
+      timeout_ms: ps.timeout_ms,
       ...(options.parallelTracks && ps.type === 'p' ? { fanout: options.parallelTracks } : {}),
     }
   })
 
   const deps = steps.flatMap(step => step.depends_on.map(dep_id => ({ step_id: step.id, dep_id })))
+  const gates = (manifest.gates ?? []).map(gate => ({
+    id: gate.id,
+    name: gate.message ?? gate.id,
+    depends_on: [gate.step_id],
+    status: 'PENDING' as const,
+    cascade: false,
+    childGateIds: [],
+    description: gate.message,
+    acceptance_conditions: [gate.check],
+    required_review: gate.type === 'approval',
+  }))
 
   const sequence = {
     id: buildSequenceId(manifest, installName),
@@ -111,10 +168,14 @@ export function compilePack(manifest: PackManifest, options: CompilePackOptions 
     thread_type: manifest.thread_types[0],
     steps,
     deps,
-    gates: [] as unknown[],
+    gates,
     pack_id: manifest.id,
     pack_version: manifest.version,
     default_policy_ref: options.policyMode ? `policy:${options.policyMode}` : manifest.default_policy ? `policy:${manifest.default_policy}` : null,
+    goal: validatedManifest.goal,
+    success_criteria: validatedManifest.success_criteria,
+    strategy_options: validatedManifest.strategy_options,
+    replan_policy: validatedManifest.replan_policy,
     created_at: now,
     updated_at: now,
     metadata: {
