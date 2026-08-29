@@ -125,6 +125,30 @@ describe.serial('run route coverage — groupId mode', () => {
     expect(data.executed).toHaveLength(0)
   })
 
+  test('POST with groupId does not report skipped steps from other groups', async () => {
+    await setupTestSequence({
+      version: '1.0',
+      name: 'group-skip-scope',
+      steps: [
+        { id: 'target-step', name: 'Target', type: 'base', model: 'codex', prompt_file: '.threados/prompts/target-step.md', depends_on: [], status: 'READY', group_id: 'grp-target' },
+        { id: 'other-skip', name: 'Other', type: 'base', model: 'codex', prompt_file: '.threados/prompts/other-skip.md', depends_on: [], status: 'READY', group_id: 'grp-other', condition: 'first_run == false' },
+      ],
+      gates: [],
+    })
+    await writePrompt('target-step')
+    await writePrompt('other-skip')
+    const { POST } = await import('@/app/api/run/route')
+    const response = await POST(new Request('http://localhost/api/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: confirmedBody({ groupId: 'grp-target' }),
+    }))
+    expect(response.status).toBe(200)
+    const data = await response.json()
+    expect(data.executed.map((entry: { stepId: string }) => entry.stepId)).toEqual(['target-step'])
+    expect(data.skipped).not.toContain('other-skip')
+  })
+
   test('POST with groupId skips steps with unmet dependencies', async () => {
     await setupTestSequence({
       version: '1.0',
@@ -734,7 +758,7 @@ describe.serial('run route coverage — runnable mode', () => {
         composioCalls.push({ toolSlug, arguments: args })
         return { team: args.team, branch: 'selected' }
       },
-    } as any
+    }
 
     await setupTestSequence({
       version: '1.0',
@@ -823,7 +847,7 @@ describe.serial('run route coverage — runnable mode', () => {
       runComposioTool: async () => {
         throw new Error('apollo unavailable')
       },
-    } as any
+    }
 
     await setupTestSequence({
       version: '1.0',
@@ -1159,7 +1183,7 @@ describe.serial('run route coverage — error handling', () => {
     expect(data.success).toBe(true)
     expect(dispatchedPrompts).toHaveLength(1)
     expect(dispatchedPrompts[0]).toContain('echo api custom prompt')
-    expect(dispatchedPrompts[0]).toContain('## THREADOS ACTION CONTRACT')
+    expect(dispatchedPrompts[0]).not.toContain('## THREADOS ACTION CONTRACT')
   })
 
   test('POST with stepId where runtime throws returns failure', async () => {
@@ -1572,7 +1596,7 @@ describe.serial('run route coverage — error handling', () => {
     expect(data.status).toBe('DONE')
 
     const runtimeContext = JSON.parse(await readFile(join(basePath, '.threados', 'state', 'runtime-context.json'), 'utf-8'))
-    expect(runtimeContext.cli_result).toMatchObject({ stdout: 'api-cli', exitCode: 0, status: 'success' })
+    expect(runtimeContext.cli_result).toBe('api-cli')
     expect(runtimeContext.icp_config_file).toMatchObject({ path: icpConfigPath, status: 'written', sourceKey: 'icp_config' })
     expect(runtimeContext.sub_agent_result).toMatchObject({ status: 'success', exitCode: 0, subagentType: 'general-purpose' })
     expect(runtimeContext.apollo_tool_result).toEqual({ ok: true, tool: 'APOLLO_TEST_TOOL' })

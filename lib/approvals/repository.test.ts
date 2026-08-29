@@ -81,28 +81,21 @@ describe('approval repository', () => {
     expect(results[2].status).toBe('rejected')
   })
 
-  test('hasApprovedApproval reuses approved records across runs after folding repeated ids', async () => {
+  test('hasApprovedApproval only reuses approval evidence from the selected active run', async () => {
     await appendApproval(tmpDir, 'run-1', makeApproval({
-      id: 'approval-shared',
-      target_ref: 'step:review',
-      status: 'pending',
+      id: 'approval-shared', target_ref: 'step:review', status: 'pending',
     }))
     await appendApproval(tmpDir, 'run-1', makeApproval({
-      id: 'approval-shared',
-      target_ref: 'step:review',
-      status: 'approved',
-      approved_by: 'human-reviewer',
-      approved_at: '2026-03-28T12:00:00.000Z',
+      id: 'approval-shared', target_ref: 'step:review', status: 'approved',
+      approved_by: 'human-reviewer', approved_at: '2026-03-28T12:00:00.000Z',
     }))
     await appendApproval(tmpDir, 'run-2', makeApproval({
-      id: 'approval-other',
-      target_ref: 'step:other',
-      status: 'pending',
+      id: 'approval-other', target_ref: 'step:other', status: 'pending',
     }))
 
-    await expect(hasApprovedApproval(tmpDir, 'step:review')).resolves.toBe(true)
-    await expect(hasApprovedApproval(tmpDir, 'step:other')).resolves.toBe(false)
-    await expect(hasApprovedApproval(tmpDir, 'step:missing')).resolves.toBe(false)
+    await expect(hasApprovedApproval(tmpDir, 'run-1', 'step:review')).resolves.toBe(true)
+    await expect(hasApprovedApproval(tmpDir, 'run-2', 'step:review')).resolves.toBe(false)
+    await expect(hasApprovedApproval(tmpDir, 'run-2', 'step:other')).resolves.toBe(false)
   })
 
   test('rejects traversal-like run ids', async () => {

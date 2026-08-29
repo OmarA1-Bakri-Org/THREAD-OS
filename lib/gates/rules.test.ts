@@ -89,6 +89,11 @@ describe('checkPolicyPass', () => {
     const result = checkPolicyPass('write', 'SAFE', 'approved_only', true)
     expect(result.status).toBe('PASS')
   })
+  it('does not let approval evidence unlock manual-only execution', () => {
+    const result = checkPolicyPass('execute', 'SAFE', 'manual_only', true)
+    expect(result.status).toBe('NEEDS_APPROVAL')
+    expect(result.reason_codes).toContain(GateReasonCode.POLICY_BLOCKED)
+  })
 })
 
 describe('checkApprovalPresent', () => {

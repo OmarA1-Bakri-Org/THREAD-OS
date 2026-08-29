@@ -13,7 +13,7 @@ Context7 provides live documentation access for key libraries used by the BD aut
 
 ### Step 1 — Resolve Library ID
 
-```
+```text
 Tool: mcp__plugin_compound-engineering_context7__resolve-library-id
 Input: { "libraryName": "falkordb python client" }
 ```
@@ -22,7 +22,7 @@ This returns the library ID and metadata. You only need to do this once per libr
 
 ### Step 2 — Query Documentation
 
-```
+```text
 Tool: mcp__plugin_compound-engineering_context7__query-docs
 Input: { "context7CompatibleLibraryID": "/falkordb/falkordb-py", "topic": "graph queries MERGE upsert" }
 ```
@@ -48,7 +48,7 @@ Input: { "context7CompatibleLibraryID": "/falkordb/falkordb-py", "topic": "graph
 
 ### FalkorDB (all agents)
 
-```
+```text
 Topic: "graph queries MERGE upsert contact interaction"
 ```
 
@@ -56,7 +56,7 @@ This covers the core Cypher patterns used by state_manager.py — MERGE with ON 
 
 ### Apollo (email agents)
 
-```
+```text
 Topic: "contacts search enrich create update notes tasks"
 ```
 

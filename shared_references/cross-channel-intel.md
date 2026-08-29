@@ -1,6 +1,6 @@
 # Cross-Channel Intelligence Protocol
 
-All BD-related skills (Outlook triage, Outlook BD, LinkedIn triage, LinkedIn BD) read from and write to a **shared intelligence file** at `/tmp/shared-intel/prospect-signals.json`. This coordinates outreach across email and LinkedIn to avoid double-touching contacts.
+All BD-related skills (Outlook triage, Outlook BD, LinkedIn triage, LinkedIn BD) use the **FalkorDB-backed graph state via `scripts/state_manager.py` as the durable source of truth**. `.threados/tmp/shared-intel/prospect-signals.json` is an optional run-local cache only; it never overrides graph state.
 
 ## What It Enables
 
@@ -8,7 +8,7 @@ All BD-related skills (Outlook triage, Outlook BD, LinkedIn triage, LinkedIn BD)
 - **LinkedIn → Email**: A HOT PROSPECT identified on LinkedIn gets flagged so the Outlook BD drafter can send a coordinated email follow-up (different channel, same thread of engagement)
 - **Deduplication**: All agents check shared-intel before drafting to avoid contacting the same person through multiple channels in the same run window
 
-## File Format
+## Optional Cache Format
 
 ```json
 {
@@ -33,20 +33,20 @@ All BD-related skills (Outlook triage, Outlook BD, LinkedIn triage, LinkedIn BD)
 
 ## Rules
 
-1. Each skill **APPENDS** to the prospects array — never overwrites existing entries from other skills
-2. Check `generated_at` — if the file is older than **24 hours**, treat it as stale and start fresh
+1. Write durable cross-channel state to FalkorDB first. If the optional cache is used, **APPEND** to its prospects array — never overwrites existing entries from other skills
+2. Cache conflict rule: **graph wins**. Check cache `generated_at` — if the file is older than **24 hours**, treat it as stale and start fresh
 3. The `do_not_contact_via` array prevents cross-channel spam (e.g., `["linkedin"]` means don't message on LinkedIn, email is fine)
-4. If the shared-intel file doesn't exist, proceed without it — cross-channel communication is additive, not required
+4. If the cache file does not exist, proceed from graph state without creating a dependency on the cache — cross-channel communication is additive, not required
 5. Always set `channel` to the channel through which the prospect was identified
 6. Always set `generated_by` to your skill's name when writing
 
 ## Directory Setup
 
 ```bash
-mkdir -p /tmp/shared-intel
+mkdir -p .threados/tmp/shared-intel
 ```
 
-The `/tmp/shared-intel/` directory should NEVER be deleted by any individual skill — other skills may still need it.
+The `.threados/tmp/shared-intel/` cache directory may be cleaned at workflow boundaries only after graph writes are confirmed; no agent may treat it as durable state — other skills may still need it.
 
 ---
 
@@ -56,8 +56,8 @@ The shared JSON file approach above is supplemented (and largely replaced) by **
 
 ### What Changed
 
-- **Before**: Cross-channel signals were written to `/tmp/shared-intel/prospect-signals.json`. This file was ephemeral (lost on reboot), required manual staleness checks, and had no dedup protection.
-- **Now**: All cross-channel intelligence is stored in the FalkorDB graph (with SQLite backup) via `scripts/state_manager.py`. The temp file may still be used as a fast-access cache, but the graph is the source of truth.
+- **Before**: Cross-channel signals were written to a temporary JSON file. That file was ephemeral (lost on reboot), required manual staleness checks, and had no dedup protection.
+- **Now**: All cross-channel intelligence is stored in the FalkorDB graph (with SQLite backup) via `scripts/state_manager.py`. `.threados/tmp/shared-intel/prospect-signals.json` may be used only as a transient cache. **On conflict, graph state wins.**
 
 ### Agent Messages as Coordination Mechanism
 

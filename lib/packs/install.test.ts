@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
-import { mkdir, mkdtemp, rm, writeFile } from 'fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import YAML from 'yaml'
@@ -157,7 +157,7 @@ describe('installPack', () => {
     expect(sequence.gates).toEqual([
       {
         id: 'alpha-ready',
-        name: 'alpha-ready',
+        name: 'Alpha must succeed',
         depends_on: ['alpha'],
         status: 'PENDING',
         cascade: false,
@@ -199,4 +199,23 @@ describe('installPack', () => {
 
     expect(await readPrompt(basePath, 'alpha')).toBe(AUTHORED_ALPHA_PROMPT)
   })
+  test('does not read authored prompts from outside the workspace', async () => {
+    const outsideDir = await mkdtemp(join(tmpdir(), 'threados-pack-outside-'))
+    const outsidePrompt = join(outsideDir, 'secret.md')
+    await writeFile(outsidePrompt, '# SECRET OUTSIDE PROMPT\n', 'utf-8')
+    try {
+      const packPath = join(basePath, '.threados', 'packs', 'demo-pack', '1.0.0', 'pack.yaml')
+      const manifest = YAML.parse(await readFile(packPath, 'utf-8'))
+      manifest.steps[0].prompt_file = outsidePrompt
+      await writeFile(packPath, YAML.stringify(manifest), 'utf-8')
+
+      await installPack(basePath, { packId: 'demo-pack', version: '1.0.0' })
+
+      expect(await readPrompt(basePath, 'alpha')).not.toContain('SECRET OUTSIDE PROMPT')
+      expect(await readPrompt(basePath, 'alpha')).toContain('Pack: Demo Pack')
+    } finally {
+      await rm(outsideDir, { recursive: true, force: true })
+    }
+  })
+
 })

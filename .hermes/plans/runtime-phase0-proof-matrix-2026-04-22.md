@@ -6,8 +6,8 @@ Purpose
 - Give Phase 4 a fixed target for what must be proven, what evidence must be preserved, and what outcomes count as supported vs fragile vs unsupported-but-cleanly-rejected.
 
 Inputs used
-- `/home/omar/.hermes/plans/2026-04-22_091759-lets-finish-the-runtime-set-out-the-plan.md`
-- `/home/omar/.hermes/plans/audit-closure-checklist-2026-04-22.md`
+- `.hermes/plans/2026-04-22_091759-lets-finish-the-runtime-set-out-the-plan.md`
+- `.hermes/plans/audit-closure-checklist-2026-04-22.md`
 - Live repo tests and fixtures in this worktree, especially:
   - `lib/seqctl/commands/run.test.ts`
   - `test/api/run-route-coverage.test.ts`

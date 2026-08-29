@@ -10,8 +10,8 @@ This checkpoint is the contract Phase 1 must follow.
 It resolves the remaining design ambiguity called out by the verified finish plan before more runtime code lands.
 
 Grounding used:
-- `/home/omar/.hermes/plans/2026-04-22_091759-lets-finish-the-runtime-set-out-the-plan.md`
-- `/home/omar/.hermes/plans/audit-closure-checklist-2026-04-22.md`
+- `.hermes/plans/2026-04-22_091759-lets-finish-the-runtime-set-out-the-plan.md`
+- `.hermes/plans/audit-closure-checklist-2026-04-22.md`
 - repo evidence in:
   - `lib/sequence/schema.ts`
   - `lib/gates/rules.ts`

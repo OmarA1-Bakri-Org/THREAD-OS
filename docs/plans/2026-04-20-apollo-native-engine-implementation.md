@@ -130,15 +130,18 @@
 - Apollo smoke verification should be rerun when runtime semantics change
 
 ## Likely files touched overall
+
 - `lib/seqctl/commands/run.ts`
 - `lib/seqctl/commands/run.test.ts`
 - possibly a new `lib/runtime/context.ts`
 - docs under `docs/workflows/` and `docs/plans/`
 
 ## Risks / tradeoffs
+
 - Overloading `run.ts` further may create debt; if a helper module emerges naturally, extract it
 - Real Composio execution introduces credential/tool variability; preserve mocked tests for determinism
 - Approval semantics can sprawl into policy/gate code; keep the first slice narrow and observable
 
 ## Success condition
+
 The Apollo pack runs materially deeper with real native runtime behavior, and the learnings are captured in thredOS docs so the future workflow intake/requirements flow can shield users from this complexity.

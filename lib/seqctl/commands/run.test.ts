@@ -9,7 +9,7 @@ import { appendApproval, readApprovals } from '../../approvals/repository'
 import { readTraceEvents } from '../../traces/reader'
 import { runStep as executeProcess } from '../../runner/wrapper'
 import { emptyThreadSurfaceState, createRootThreadSurfaceRun, createChildThreadSurfaceRun } from '../../thread-surfaces/mutations'
-import { writeThreadSurfaceState } from '../../thread-surfaces/repository'
+import { readThreadSurfaceState, writeThreadSurfaceState } from '../../thread-surfaces/repository'
 import { deriveStepThreadSurfaceId } from '../../thread-surfaces/constants'
 
 let tempDir: string
@@ -45,8 +45,8 @@ describe('run step native action execution', () => {
             { id: 'cli-action', type: 'cli', config: { command: "printf 'cli-ok'" }, output_key: 'cli_result' },
             { id: 'write-icp', type: 'write_file', config: { file_path: icpConfigPath }, output_key: 'icp_config_file' },
             { id: 'spawn-artifact-agent', type: 'sub_agent', config: { prompt: 'Write the qualified segment artifact JSON.', subagent_type: 'general-purpose' }, output_key: 'sub_agent_result' },
-            { id: 'apollo-alias', type: 'rube_tool' as any, config: { tool_slug: 'APOLLO_TEST_TOOL', arguments: { query: 'segment' } }, output_key: 'apollo_tool_result' },
-          ] as any,
+            { id: 'apollo-alias', type: 'rube_tool', config: { tool_slug: 'APOLLO_TEST_TOOL', arguments: { query: 'segment' } }, output_key: 'apollo_tool_result' },
+          ],
         }),
       ],
     })
@@ -103,7 +103,7 @@ describe('run step native action execution', () => {
     expect(output.status).toBe('DONE')
 
     const runtimeContext = JSON.parse(await readFile(join(tempDir, '.threados/state/runtime-context.json'), 'utf-8'))
-    expect(runtimeContext.cli_result).toMatchObject({ stdout: 'cli-ok', exitCode: 0, status: 'success' })
+    expect(runtimeContext.cli_result).toBe('cli-ok')
     expect(runtimeContext.icp_config_file).toMatchObject({ path: icpConfigPath, status: 'written', sourceKey: 'icp_config' })
     expect(runtimeContext.sub_agent_result).toMatchObject({ status: 'success', exitCode: 0, subagentType: 'general-purpose' })
     expect(runtimeContext.apollo_tool_result).toEqual({ ok: true, tool: 'APOLLO_TEST_TOOL' })
@@ -125,7 +125,7 @@ describe('run step native action execution', () => {
           prompt_file: '.threados/prompts/shell-parent-subagent.md',
           actions: [
             { id: 'spawn-subagent', type: 'sub_agent', config: { prompt: 'Say OK.', subagent_type: 'general-purpose' }, output_key: 'sub_agent_result' },
-          ] as any,
+          ],
         }),
       ],
     })
@@ -176,7 +176,7 @@ describe('run step native action execution', () => {
           prompt_file: '.threados/prompts/protected-runtime-key.md',
           actions: [
             { id: 'overwrite-approval-input', type: 'cli', config: { command: "printf 'oops'" }, output_key: 'icp_config.sources' },
-          ] as any,
+          ],
         }),
       ],
     })
@@ -232,7 +232,7 @@ describe('run step native action execution', () => {
           prompt_file: '.threados/prompts/blocked-subagent.md',
           actions: [
             { id: 'spawn-subagent', type: 'sub_agent', config: { prompt: 'Open the restricted admin tool and finish the task.', subagent_type: 'general-purpose' }, output_key: 'sub_agent_result' },
-          ] as any,
+          ],
         }),
       ],
     })
@@ -575,7 +575,7 @@ describe('run runnable — no runnable steps', () => {
   test('marks false-condition READY steps as durable SKIPPED', async () => {
     const seq = makeSequence({
       steps: [
-        makeStep({ id: 'a', status: 'READY', condition: "icp_config.sources contains 'apollo_discovery'" } as any),
+        makeStep({ id: 'a', status: 'READY', condition: "icp_config.sources contains 'apollo_discovery'" }),
       ],
     })
     await writeTestSequence(tempDir, seq)
@@ -608,7 +608,7 @@ describe('run runnable — no runnable steps', () => {
           model: 'shell',
           prompt_file: '.threados/prompts/conditional-step.md',
           condition: "icp_config.sources contains 'apollo_discovery'",
-        } as any),
+        }),
       ],
     })
     await writeTestSequence(tempDir, seq)
@@ -660,7 +660,7 @@ describe('run runnable — no runnable steps', () => {
           model: 'shell',
           prompt_file: '.threados/prompts/optional-branch.md',
           condition: "icp_config.sources contains 'apollo_discovery'",
-        } as any),
+        }),
         makeStep({
           id: 'mandatory-downstream',
           status: 'READY',
@@ -729,7 +729,7 @@ describe('run runnable — no runnable steps', () => {
   test('returns runnable step when runtime context satisfies condition', async () => {
     const seq = makeSequence({
       steps: [
-        makeStep({ id: 'ctx-step', status: 'READY', model: 'shell', prompt_file: '.threados/prompts/ctx-step.md', condition: "icp_config.sources contains 'apollo_discovery'" } as any),
+        makeStep({ id: 'ctx-step', status: 'READY', model: 'shell', prompt_file: '.threados/prompts/ctx-step.md', condition: "icp_config.sources contains 'apollo_discovery'" }),
       ],
     })
     await writeTestSequence(tempDir, seq)
@@ -784,7 +784,7 @@ describe('run runnable — no runnable steps', () => {
   test('surfaces malformed runtime context instead of silently treating it as empty', async () => {
     const seq = makeSequence({
       steps: [
-        makeStep({ id: 'ctx-step', status: 'READY', model: 'shell', prompt_file: '.threados/prompts/ctx-step.md', condition: "icp_config.sources contains 'apollo_discovery'" } as any),
+        makeStep({ id: 'ctx-step', status: 'READY', model: 'shell', prompt_file: '.threados/prompts/ctx-step.md', condition: "icp_config.sources contains 'apollo_discovery'" }),
       ],
     })
     await writeTestSequence(tempDir, seq)
@@ -803,7 +803,7 @@ describe('run runnable — no runnable steps', () => {
           model: 'shell',
           prompt_file: '.threados/prompts/ctx-step.md',
           condition: 'icp_config.sources.length == 2',
-        } as any),
+        }),
       ],
     })
     await writeTestSequence(tempDir, seq)
@@ -1173,7 +1173,7 @@ describe('run step — with mock runtime', () => {
             },
             output_key: 'apollo_usage',
           }],
-        } as any),
+        }),
       ],
     })
     await writeTestSequence(tempDir, seq)
@@ -1213,7 +1213,7 @@ describe('run step — with mock runtime', () => {
         composioCalls.push({ toolSlug, arguments: args })
         return { usage_remaining: 42, team: args.team }
       },
-    } as any
+    }
 
     const logs: string[] = []
     const origLog = console.log
@@ -1226,9 +1226,8 @@ describe('run step — with mock runtime', () => {
     expect(composioCalls).toEqual([{ toolSlug: 'APOLLO_VIEW_API_USAGE_STATS', arguments: { team: 'growth' } }])
     const runtimeContext = JSON.parse(await readFile(join(tempDir, '.threados/state/runtime-context.json'), 'utf-8'))
     expect(runtimeContext.apollo_usage).toEqual({ usage_remaining: 42, team: 'growth' })
-    expect(compiledPromptSeen).toContain('THREADOS ACTION CONTRACT')
-    expect(compiledPromptSeen).toContain('apollo-usage')
-    expect(compiledPromptSeen).toContain('APOLLO_VIEW_API_USAGE_STATS')
+    expect(compiledPromptSeen).toBe('echo action')
+    expect(compiledPromptSeen).not.toContain('THREADOS ACTION CONTRACT')
   })
 
   test('run step fails fast when composio auth is not configured for a composio action', async () => {
@@ -1248,7 +1247,7 @@ describe('run step — with mock runtime', () => {
             },
             output_key: 'apollo_usage',
           }],
-        } as any),
+        }),
       ],
     })
     await writeTestSequence(tempDir, seq)
@@ -1279,7 +1278,7 @@ describe('run step — with mock runtime', () => {
         status: 'SUCCESS',
       }),
       saveRunArtifacts: async () => '.threados/runs/mock',
-    } as any
+    }
 
     const isolatedHome = await mkdtemp(join(tmpdir(), 'threados-composio-auth-'))
     const originalHome = process.env.HOME
@@ -1327,7 +1326,7 @@ describe('run step — with mock runtime', () => {
             },
             output_key: 'apollo_usage',
           }],
-        } as any),
+        }),
       ],
     })
     await writeTestSequence(tempDir, seq)
@@ -1359,7 +1358,7 @@ describe('run step — with mock runtime', () => {
       }),
       saveRunArtifacts: async () => '.threados/runs/mock',
       runComposioTool: async () => null,
-    } as any
+    }
 
     const logs: string[] = []
     const origLog = console.log
@@ -1416,7 +1415,7 @@ describe('run step — with mock runtime', () => {
         status: 'SUCCESS',
       }),
       saveRunArtifacts: async () => '.threados/runs/mock',
-    } as any
+    }
 
     const logs: string[] = []
     const origLog = console.log
@@ -1466,7 +1465,7 @@ describe('run step — with mock runtime', () => {
               }],
             },
           }],
-        } as any),
+        }),
       ],
     })
     await writeTestSequence(tempDir, seq)
@@ -1507,7 +1506,7 @@ describe('run step — with mock runtime', () => {
         composioCalls.push({ toolSlug, arguments: args })
         return { team: args.team, branch: 'selected' }
       },
-    } as any
+    }
 
     const logs: string[] = []
     const origLog = console.log
@@ -1550,7 +1549,7 @@ describe('run step — with mock runtime', () => {
               }],
             },
           }],
-        } as any),
+        }),
       ],
     })
     await writeTestSequence(tempDir, seq)
@@ -1628,7 +1627,7 @@ describe('run step — with mock runtime', () => {
             config: { tool_slug: 'APOLLO_VIEW_API_USAGE_STATS' },
             on_failure: 'abort_step',
           }],
-        } as any),
+        }),
       ],
     })
     await writeTestSequence(tempDir, seq)
@@ -1666,7 +1665,7 @@ describe('run step — with mock runtime', () => {
       runComposioTool: async () => {
         throw new Error('apollo offline')
       },
-    } as any
+    }
 
     const logs: string[] = []
     const origLog = console.log
@@ -1698,7 +1697,7 @@ describe('run step — with mock runtime', () => {
             on_failure: 'skip',
             output_key: 'apollo_usage',
           }],
-        } as any),
+        }),
       ],
     })
     await writeTestSequence(tempDir, seq)
@@ -1736,7 +1735,7 @@ describe('run step — with mock runtime', () => {
       runComposioTool: async () => {
         throw new Error('transient composio issue')
       },
-    } as any
+    }
 
     const logs: string[] = []
     const origLog = console.log
@@ -1770,7 +1769,7 @@ describe('run step — with mock runtime', () => {
             on_failure: 'warn',
             output_key: 'apollo_usage',
           }],
-        } as any),
+        }),
       ],
     })
     await writeTestSequence(tempDir, seq)
@@ -1810,7 +1809,7 @@ describe('run step — with mock runtime', () => {
       runComposioTool: async () => {
         throw new Error('transient composio issue')
       },
-    } as any
+    }
 
     const logs: string[] = []
     const warns: string[] = []
@@ -1828,8 +1827,8 @@ describe('run step — with mock runtime', () => {
     expect(output.success).toBe(true)
     expect(output.status).toBe('DONE')
     expect(dispatchCalls).toBe(1)
-    expect(compiledPromptSeen).toContain('THREADOS ACTION CONTRACT')
-    expect(compiledPromptSeen).toContain('apollo-usage')
+    expect(compiledPromptSeen).toBe('echo warn')
+    expect(compiledPromptSeen).not.toContain('THREADOS ACTION CONTRACT')
     expect(warns).toContain("Composio action 'apollo-usage' failed: transient composio issue")
     const runtimeContextRaw = await readFile(join(tempDir, '.threados/state/runtime-context.json'), 'utf-8').catch(() => '{}')
     const runtimeContext = JSON.parse(runtimeContextRaw)
@@ -1851,7 +1850,7 @@ describe('run step — with mock runtime', () => {
               approval_prompt: 'Review outbound Apollo updates before continuing',
             },
           }],
-        } as any),
+        }),
       ],
     })
     await writeTestSequence(tempDir, seq)
@@ -1886,7 +1885,7 @@ describe('run step — with mock runtime', () => {
         status: 'SUCCESS',
       }),
       saveRunArtifacts: async () => '.threados/runs/mock',
-    } as any
+    }
 
     const logs: string[] = []
     const origLog = console.log
@@ -1943,7 +1942,7 @@ describe('run step — with mock runtime', () => {
               approval_prompt: 'Review {{qualified_segment.segment_name}} | Saved {{counts.saved}} | Discovery {{counts.discovery}} | Both {{counts.both}} | Persona A {{counts.A}} | Persona E {{counts.E}} | Excluded dupes {{excluded.duplicates}} | Credits {{enriched_segment.credits_used}}/{{icp_config.enrichment.max_apollo_credits}} | Stage {{icp_config.output.apollo_stage_name}} ({{stage_id_or_MISSING}}) | Missing {{missing.path}}',
             },
           }],
-        } as any),
+        }),
       ],
     })
     await writeTestSequence(tempDir, seq)
@@ -1986,7 +1985,7 @@ describe('run step — with mock runtime', () => {
         throw new Error('approval action should block before runStep')
       },
       saveRunArtifacts: async () => '.threados/runs/mock',
-    } as any
+    }
 
     const logs: string[] = []
     const origLog = console.log
@@ -2018,7 +2017,7 @@ describe('run step — with mock runtime', () => {
               approval_prompt: 'Human review required before send',
             },
           }],
-        } as any),
+        }),
         makeStep({
           id: 'after-approval',
           model: 'shell',
@@ -2061,7 +2060,7 @@ describe('run step — with mock runtime', () => {
         status: 'SUCCESS',
       }),
       saveRunArtifacts: async () => '.threados/runs/mock',
-    } as any
+    }
 
     const logs: string[] = []
     const origLog = console.log
@@ -2106,7 +2105,7 @@ describe('run step — with mock runtime', () => {
               approval_prompt: 'Human review required before send',
             },
           }],
-        } as any),
+        }),
       ],
     })
     await writeTestSequence(tempDir, seq)
@@ -2141,7 +2140,7 @@ describe('run step — with mock runtime', () => {
         status: 'SUCCESS',
       }),
       saveRunArtifacts: async () => '.threados/runs/mock',
-    } as any
+    }
 
     const firstLogs: string[] = []
     const origLog = console.log
@@ -2154,6 +2153,8 @@ describe('run step — with mock runtime', () => {
     const firstOutput = JSON.parse(firstLogs[0])
     expect(firstOutput.status).toBe('BLOCKED')
     expect(dispatchCalls).toBe(0)
+    const blockedState = await readThreadSurfaceState(tempDir)
+    expect(blockedState.runs.find(run => run.id === firstOutput.runId)?.runStatus).toBe('pending')
 
     const [pendingApproval] = await readApprovals(tempDir, firstOutput.runId)
     expect(pendingApproval).toBeDefined()
@@ -2176,6 +2177,8 @@ describe('run step — with mock runtime', () => {
     expect(rerunOutput.status).toBe('DONE')
     expect(dispatchCalls).toBe(1)
     expect(rerunOutput.runId).not.toBe(firstOutput.runId)
+    const resumedState = await readThreadSurfaceState(tempDir)
+    expect(resumedState.runs.find(run => run.id === firstOutput.runId)?.runStatus).toBe('cancelled')
     await expect(readApprovals(tempDir, rerunOutput.runId)).resolves.toEqual([])
     await expect(readTraceEvents(tempDir, rerunOutput.runId)).resolves.toEqual([])
 
@@ -2198,7 +2201,7 @@ describe('run step — with mock runtime', () => {
               approval_prompt: 'Human review required before send',
             },
           }],
-        } as any),
+        }),
         makeStep({
           id: 'after-approval',
           model: 'shell',
@@ -2241,7 +2244,7 @@ describe('run step — with mock runtime', () => {
         status: 'SUCCESS',
       }),
       saveRunArtifacts: async () => '.threados/runs/mock',
-    } as any
+    }
 
     const firstLogs: string[] = []
     const origLog = console.log
@@ -2328,7 +2331,7 @@ describe('run step — with mock runtime', () => {
         status: 'SUCCESS',
       }),
       saveRunArtifacts: async () => '.threados/runs/mock',
-    } as any
+    }
 
     const logs: string[] = []
     const origLog = console.log
@@ -2369,7 +2372,7 @@ describe('run step — with mock runtime', () => {
               approval_prompt: 'Human review required before send',
             },
           }],
-        } as any),
+        }),
       ],
     })
     await writeTestSequence(tempDir, seq)
@@ -2415,7 +2418,7 @@ describe('run step — with mock runtime', () => {
         status: 'SUCCESS',
       }),
       saveRunArtifacts: async () => '.threados/runs/mock',
-    } as any
+    }
 
     const logs: string[] = []
     const origLog = console.log
@@ -2444,7 +2447,7 @@ describe('run step — with mock runtime', () => {
           status: 'READY',
           prompt_file: '.threados/prompts/policy-blocked-write-step.md',
           side_effect_class: 'write',
-        } as any),
+        }),
       ],
     })
     await writeTestSequence(tempDir, seq)
@@ -2480,7 +2483,7 @@ describe('run step — with mock runtime', () => {
         status: 'SUCCESS',
       }),
       saveRunArtifacts: async () => '.threados/runs/mock',
-    } as any
+    }
 
     const logs: string[] = []
     const origLog = console.log
@@ -2508,12 +2511,20 @@ describe('run step — with mock runtime', () => {
           status: 'BLOCKED',
           prompt_file: '.threados/prompts/step-approved-write.md',
           side_effect_class: 'write',
-        } as any),
+        }),
       ],
     })
     await writeTestSequence(tempDir, seq)
     await writeFile(join(tempDir, '.threados/prompts/step-approved-write.md'), 'echo approved-write')
     await writeFile(join(tempDir, '.threados/policy.yaml'), 'mode: SAFE\nside_effect_mode: approved_only\ncross_surface_reads: dependency_only\n')
+    const approvalStartedAt = '2026-03-28T09:55:00.000Z'
+    await writeThreadSurfaceState(tempDir, createRootThreadSurfaceRun(emptyThreadSurfaceState, {
+      surfaceId: 'thread-root',
+      surfaceLabel: 'approved-write-seq',
+      createdAt: approvalStartedAt,
+      runId: 'run-approved-write-earlier',
+      startedAt: approvalStartedAt,
+    }).state)
     await appendApproval(tempDir, 'run-approved-write-earlier', {
       id: 'approval-approved-write-earlier',
       action_type: 'run',
@@ -2554,7 +2565,7 @@ describe('run step — with mock runtime', () => {
         status: 'SUCCESS',
       }),
       saveRunArtifacts: async () => '.threados/runs/mock',
-    } as any
+    }
 
     const logs: string[] = []
     const origLog = console.log
@@ -2568,6 +2579,8 @@ describe('run step — with mock runtime', () => {
     expect(output.success).toBe(true)
     expect(output.status).toBe('DONE')
     expect(dispatchCalls).toBe(1)
+    const state = await readThreadSurfaceState(tempDir)
+    expect(state.runs.find(run => run.id === 'run-approved-write-earlier')?.runStatus).toBe('cancelled')
 
     const updatedSeq = await readSequence(tempDir)
     expect(updatedSeq.steps.find(step => step.id === 'step-approved-write')?.status).toBe('DONE')
@@ -2589,7 +2602,7 @@ describe('run step — with mock runtime', () => {
               approval_prompt: 'Human review required before send',
             },
           }],
-        } as any),
+        }),
       ],
     })
     await writeTestSequence(tempDir, seq)
@@ -2625,7 +2638,7 @@ describe('run step — with mock runtime', () => {
         throw new Error('approval action should block before runStep')
       },
       saveRunArtifacts: async () => '.threados/runs/mock',
-    } as any
+    }
 
     const logs: string[] = []
     const origLog = console.log
@@ -2656,7 +2669,7 @@ describe('run step — with mock runtime', () => {
               approval_prompt: 'Human review required before send',
             },
           }],
-        } as any),
+        }),
         makeStep({
           id: 'after-approval',
           model: 'shell',
@@ -2699,7 +2712,7 @@ describe('run step — with mock runtime', () => {
         status: 'SUCCESS',
       }),
       saveRunArtifacts: async () => '.threados/runs/mock',
-    } as any
+    }
 
     const logs: string[] = []
     const origLog = console.log
@@ -2786,7 +2799,7 @@ describe('run step — with mock runtime', () => {
               if_true: [],
               if_false: [],
             },
-          }] as any,
+          }],
         }),
       ],
     })
@@ -2825,7 +2838,7 @@ describe('run step — with mock runtime', () => {
     expect(output.success).toBe(true)
     expect(dispatchedPrompts).toHaveLength(1)
     expect(dispatchedPrompts[0]).toContain('echo custom prompt path')
-    expect(dispatchedPrompts[0]).toContain('## THREADOS ACTION CONTRACT')
+    expect(dispatchedPrompts[0]).not.toContain('## THREADOS ACTION CONTRACT')
     expect(savedArtifacts).toHaveLength(1)
     expect(savedArtifacts[0]?.options).toMatchObject({
       surfaceId: 'thread-custom-prompt-step',
@@ -2940,7 +2953,7 @@ describe('run runnable — with mock runtime', () => {
             config: { tool_slug: 'APOLLO_VIEW_API_USAGE_STATS' },
             on_failure: 'abort_workflow',
           }],
-        } as any),
+        }),
         makeStep({ id: 'step-2', status: 'READY', model: 'shell', prompt_file: '.threados/prompts/step-2.md', depends_on: [] }),
       ],
     })
@@ -2980,7 +2993,7 @@ describe('run runnable — with mock runtime', () => {
       runComposioTool: async () => {
         throw new Error('apollo offline')
       },
-    } as any
+    }
 
     const logs: string[] = []
     const origLog = console.log
@@ -3223,7 +3236,7 @@ describe('run group — with mock runtime', () => {
               approval_prompt: 'Human review required before grouped send',
             },
           }],
-        } as any),
+        }),
         makeStep({
           id: 'after-group-approval',
           status: 'READY',
@@ -3267,7 +3280,7 @@ describe('run group — with mock runtime', () => {
         status: 'SUCCESS',
       }),
       saveRunArtifacts: async () => '.threados/runs/mock',
-    } as any
+    }
 
     const jsonLogs: string[] = []
     const origLog = console.log

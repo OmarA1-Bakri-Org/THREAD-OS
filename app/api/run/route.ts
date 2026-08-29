@@ -10,6 +10,7 @@ import {
   type PolicyCheckResult,
 } from '@/lib/api-helpers'
 import { hasApprovedApproval, readApprovals } from '@/lib/approvals/repository'
+import { findApprovedActiveRunId, retireApprovalRun } from '@/lib/approvals/active-run'
 import { interpolateApprovalNote, recordApprovedApprovalLifecycle, recordPendingApprovalRequest } from '@/lib/approvals/runtime'
 import { getBasePath } from '@/lib/config'
 import { appendGateDecision } from '@/lib/gates/repository'
@@ -50,8 +51,6 @@ import {
 } from '@/lib/thread-surfaces/step-run-runtime'
 import { appendTraceEvent } from '@/lib/traces/writer'
 import {
-  buildConditionContext,
-  evaluateRuntimeCondition,
   evaluateSequenceCondition,
   readRuntimeContext,
 } from '@/lib/runtime/context'
@@ -87,6 +86,7 @@ interface ExecuteStepOptions {
   confirmPolicy: boolean
   policyConfig: PolicyConfig
   approvalTargetRef: string
+  approvalRunId?: string | null
 }
 
 type ExecuteStepResult = {
@@ -187,8 +187,7 @@ async function collectApprovalTargetRefs(
   for (const action of actions) {
     if (action.type === 'conditional') {
       const config = (action.config ?? {}) as Record<string, unknown>
-      const branchContext = buildConditionContext(sequence, await readRuntimeContext(basePath))
-      const branchActions = evaluateRuntimeCondition(String(config.condition ?? ''), branchContext)
+      const branchActions = await evaluateSequenceCondition(basePath, sequence, String(config.condition ?? ''))
         ? config.if_true
         : config.if_false
       const nestedActions = Array.isArray(branchActions)
@@ -212,16 +211,10 @@ async function collectApprovalTargetRefs(
 
 async function hasSatisfiedApprovalRequirements(basePath: string, sequence: Sequence, step: Step): Promise<boolean> {
   const targets = await collectApprovalTargetRefs(basePath, sequence, step)
-  if (targets.length === 0) return false
-
-  for (const targetRef of targets) {
-    if (!await hasApprovedApproval(basePath, targetRef, 'run')) {
-      return false
-    }
-  }
-
-  return true
+  const requiredTargets = targets.length > 0 ? targets : [`step:${step.id}`]
+  return (await findApprovedActiveRunId(basePath, requiredTargets, 'run')) != null
 }
+
 
 function getCompletedNodeIds(sequence: Sequence): Set<string> {
   return new Set([
@@ -324,9 +317,10 @@ async function resolveTargetSteps(basePath: string, sequence: Sequence, body: Ru
 
   if ('groupId' in body) {
     const selection = await getRunnableSteps(basePath, sequence)
+    const groupStepIds = new Set(sequence.steps.filter(step => step.group_id === body.groupId).map(step => step.id))
     return {
-      steps: selection.steps.filter(step => step.group_id === body.groupId),
-      skippedIds: selection.skippedIds,
+      steps: selection.steps.filter(step => groupStepIds.has(step.id)),
+      skippedIds: selection.skippedIds.filter(stepId => groupStepIds.has(stepId)),
     }
   }
 
@@ -378,19 +372,19 @@ async function executeNativeStepActions(
   step: Step,
   runId: string,
   runtime: RunRouteRuntime,
+  approvalRunId: string | null = null,
   actions: Array<Record<string, unknown>> = (step.actions ?? []) as Array<Record<string, unknown>>,
 ): Promise<void> {
   for (const action of actions) {
     if (action.type === 'conditional') {
       const config = (action.config ?? {}) as Record<string, unknown>
-      const branchContext = buildConditionContext(sequence, await readRuntimeContext(basePath))
-      const branchActions = evaluateRuntimeCondition(String(config.condition ?? ''), branchContext)
+      const branchActions = await evaluateSequenceCondition(basePath, sequence, String(config.condition ?? ''))
         ? config.if_true
         : config.if_false
       const nestedActions = Array.isArray(branchActions)
         ? branchActions.filter((candidate): candidate is Record<string, unknown> => !!candidate && typeof candidate === 'object')
         : []
-      await executeNativeStepActions(basePath, sequence, step, runId, runtime, nestedActions)
+      await executeNativeStepActions(basePath, sequence, step, runId, runtime, approvalRunId, nestedActions)
       continue
     }
 
@@ -410,9 +404,10 @@ async function executeNativeStepActions(
         runtimeContext,
       )
 
-      if (step.status === 'BLOCKED' && await hasApprovedApproval(basePath, targetRef, 'run')) {
-        continue
-      }
+      const approvedInResumedRun = approvalRunId
+        ? await hasApprovedApproval(basePath, approvalRunId, targetRef, 'run')
+        : false
+      if (approvedInResumedRun) continue
 
       await recordPendingApprovalRequest({
         basePath,
@@ -616,14 +611,18 @@ async function finalizeStepRunScope(
   }
 }
 
+
+function resolveRequestRunStatus(result: ExecuteStepResult | BatchExecuteResult): RunScopeStatus {
+  if ('status' in result && (result.status === 'BLOCKED' || result.confirmationRequired === true)) return 'pending'
+  if ('executed' in result && result.executed.some(entry => entry.status === 'BLOCKED' || entry.confirmationRequired === true)) return 'pending'
+  return result.success ? 'successful' : 'failed'
+}
+
 async function finalizeRunScope(basePath: string, runId: string, runStatus: RunScopeStatus, runSummary: string) {
   const currentState = await readThreadSurfaceState(basePath)
-  const nextState = completeRun(currentState, {
-    runId,
-    runStatus,
-    endedAt: runStatus === 'pending' ? null : new Date().toISOString(),
-    runSummary,
-  }).state
+  const nextState = runStatus === 'pending'
+    ? completeRun(currentState, { runId, runStatus: 'pending', endedAt: null, runSummary }).state
+    : completeRun(currentState, { runId, runStatus, endedAt: new Date().toISOString(), runSummary }).state
   await writeThreadSurfaceState(basePath, withThreadSurfaceStateRevision(currentState, nextState))
 }
 
@@ -665,7 +664,7 @@ async function executeStep(
   const artifactManifestRef = getArtifactManifestRef(runId, surfaceId)
 
   try {
-    await preflightStepEnvironment(basePath, step)
+    await preflightStepEnvironment(basePath, step, { hasComposioExecutor: Boolean(runtime.runComposioTool) })
     const runtimeEventLogPath = getRuntimeEventLogPath(basePath, runId, stepId)
     const preparedPrompt = await prepareStepPromptForDispatch({
       stepId,
@@ -681,12 +680,22 @@ async function executeStep(
     await writeCompiledPrompt(basePath, runId, surfaceId, preparedPrompt.promptForDispatch)
 
     const approvals = await readApprovals(basePath, runId).catch(() => [])
+    const nativeApprovalTargets = await collectApprovalTargetRefs(basePath, sequence, step)
+    const activeApprovalTargets = nativeApprovalTargets.length > 0
+      ? nativeApprovalTargets
+      : [`step:${step.id}`, options.approvalTargetRef]
+    const approvalRunId = options.approvalRunId
+      ?? (step.status === 'BLOCKED' ? await findApprovedActiveRunId(basePath, activeApprovalTargets, 'run') : null)
     const approvalPresent = options.confirmPolicy
-      || (step.status === 'BLOCKED' && await hasApprovedApproval(basePath, `step:${step.id}`, 'run'))
-      || (step.status === 'BLOCKED' && await hasApprovedApproval(basePath, options.approvalTargetRef, 'run'))
       || approvals.some(approval => approval.status === 'approved' && (
         approval.target_ref === `step:${step.id}` || approval.target_ref === options.approvalTargetRef
       ))
+      || (approvalRunId != null && activeApprovalTargets.every(targetRef =>
+        approvals.some(approval => approval.status === 'approved' && approval.target_ref === targetRef)
+      ))
+      || (approvalRunId != null && await Promise.all(activeApprovalTargets.map(targetRef =>
+        hasApprovedApproval(basePath, approvalRunId, targetRef, 'run')
+      )).then(results => results.every(Boolean)))
 
     const currentSurfaceState = await readThreadSurfaceState(basePath)
     const surface = currentSurfaceState.threadSurfaces.find(candidate => candidate.id === surfaceId)
@@ -696,7 +705,7 @@ async function executeStep(
       crossSurfaceReads: options.policyConfig.cross_surface_reads,
       surfaceClass: surface?.surfaceClass ?? 'shared',
       revealState: surface?.surfaceClass === 'sealed' ? 'revealed' : (surface?.revealState ?? null),
-      isDependency: true,
+      isDependency: step.depends_on.length > 0,
       inputManifestPresent: true,
       approvalPresent,
     })
@@ -756,7 +765,10 @@ async function executeStep(
       }
     }
 
-    await executeNativeStepActions(basePath, sequence, step, runId, runtime)
+    if (approvalRunId && approvalRunId !== runId) {
+      await retireApprovalRun(basePath, approvalRunId)
+    }
+    await executeNativeStepActions(basePath, sequence, step, runId, runtime, approvalRunId)
 
     const runnerConfig = await runtime.dispatch(step.model, {
       stepId,
@@ -771,7 +783,7 @@ async function executeStep(
     const policyResult = await checkPolicy('run_command', {
       command: commandLineFromRunnerConfig(runnerConfig),
       cwd: runnerConfig.cwd,
-      confirmed: options.confirmPolicy,
+      confirmed: options.confirmPolicy || approvalRunId != null,
     })
     if (!policyResult.allowed) {
       await buildRunRecord(basePath, {
@@ -965,7 +977,17 @@ export async function POST(request: Request) {
     validateDAG(sequence)
 
     const { steps: targetSteps, skippedIds: targetSkippedIds } = await resolveTargetSteps(basePath, sequence, body)
-    const batchPolicy = await enforceBatchPolicy(basePath, targetSteps.length, body.confirmPolicy === true)
+    const activeApprovalRunIds = new Map<string, string>()
+    for (const targetStep of targetSteps) {
+      if (targetStep.status !== 'BLOCKED') continue
+      const nativeTargets = await collectApprovalTargetRefs(basePath, sequence, targetStep)
+      const targets = nativeTargets.length > 0 ? nativeTargets : [`step:${targetStep.id}`]
+      const approvedRunId = await findApprovedActiveRunId(basePath, targets, 'run')
+      if (approvedRunId) activeApprovalRunIds.set(targetStep.id, approvedRunId)
+    }
+    const resumedApprovedWork = targetSteps.length > 0
+      && targetSteps.every(step => step.status === 'BLOCKED' && activeApprovalRunIds.has(step.id))
+    const batchPolicy = await enforceBatchPolicy(basePath, targetSteps.length, body.confirmPolicy === true || resumedApprovedWork)
     if (!batchPolicy.allowed) {
       const policyHttp = policyStatusToHttp(batchPolicy)
       return jsonError(batchPolicy.reason ?? 'Policy denied', policyHttp.code, policyHttp.status)
@@ -1005,8 +1027,9 @@ export async function POST(request: Request) {
         confirmPolicy: body.confirmPolicy === true,
         policyConfig,
         approvalTargetRef,
+        approvalRunId: activeApprovalRunIds.get(body.stepId) ?? null,
       })
-      await finalizeRunScope(basePath, runId, result.success ? 'successful' : 'failed', `step:${body.stepId}`)
+      await finalizeRunScope(basePath, runId, resolveRequestRunStatus(result), `step:${body.stepId}`)
       await auditLog('run.step', body.stepId, { runId }, result.success ? 'ok' : 'failed')
       if (!result.success && result.confirmationRequired) {
         return jsonError(result.error ?? 'Policy confirmation required', 'POLICY_CONFIRMATION_REQUIRED', 409)
@@ -1021,7 +1044,7 @@ export async function POST(request: Request) {
         policyConfig,
         approvalTargetRef,
       }, groupStepIds, false, targetSkippedIds)
-      await finalizeRunScope(basePath, runId, result.success ? 'successful' : 'failed', `group:${body.groupId}`)
+      await finalizeRunScope(basePath, runId, resolveRequestRunStatus(result), `group:${body.groupId}`)
       await auditLog('run.group', body.groupId, { runId, count: result.executed.length }, result.success ? 'ok' : 'failed')
       return NextResponse.json(result)
     }
@@ -1031,7 +1054,7 @@ export async function POST(request: Request) {
       policyConfig,
       approvalTargetRef,
     }, undefined, true, targetSkippedIds)
-    await finalizeRunScope(basePath, runId, result.success ? 'successful' : 'failed', 'mode:runnable')
+    await finalizeRunScope(basePath, runId, resolveRequestRunStatus(result), 'mode:runnable')
     await auditLog('run.runnable', '*', { runId, count: result.executed.length }, result.success ? 'ok' : 'failed')
     return NextResponse.json(result)
   } catch (error) {

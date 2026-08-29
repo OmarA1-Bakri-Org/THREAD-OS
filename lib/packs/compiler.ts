@@ -91,12 +91,24 @@ export function compilePack(manifest: PackManifest, options: CompilePackOptions 
 
   const inferSideEffectClass = (actions: unknown[] | undefined): 'none' | 'read' | 'write' | 'execute' => {
     if (!actions || actions.length === 0) return 'none'
-    const typed = actions as Array<Record<string, unknown>>
-    const actionTypes = typed.map(action => String(action.type ?? ''))
-    if (actionTypes.some(type => ['cli', 'composio_tool', 'sub_agent', 'approval', 'conditional'].includes(type))) return 'execute'
-    if (actionTypes.some(type => ['write_file'].includes(type))) return 'write'
-    if (actionTypes.some(type => ['read_file', 'skill'].includes(type))) return 'read'
-    return 'none'
+    const precedence = { none: 0, read: 1, write: 2, execute: 3 } as const
+    let result: 'none' | 'read' | 'write' | 'execute' = 'none'
+    const elevate = (candidate: typeof result) => { if (precedence[candidate] > precedence[result]) result = candidate }
+
+    for (const value of actions) {
+      if (!value || typeof value !== 'object') continue
+      const action = value as Record<string, unknown>
+      const type = String(action.type ?? '')
+      if (['cli', 'composio_tool', 'sub_agent', 'approval'].includes(type)) return 'execute'
+      if (type === 'write_file') { elevate('write'); continue }
+      if (['read_file', 'skill'].includes(type)) { elevate('read'); continue }
+      if (type === 'conditional') {
+        const config = action.config && typeof action.config === 'object' ? action.config as Record<string, unknown> : {}
+        elevate(inferSideEffectClass(Array.isArray(config.if_true) ? config.if_true : []))
+        elevate(inferSideEffectClass(Array.isArray(config.if_false) ? config.if_false : []))
+      }
+    }
+    return result
   }
 
   const steps = validatedManifest.steps.map(ps => {
@@ -139,7 +151,7 @@ export function compilePack(manifest: PackManifest, options: CompilePackOptions 
   const deps = steps.flatMap(step => step.depends_on.map(dep_id => ({ step_id: step.id, dep_id })))
   const gates = (manifest.gates ?? []).map(gate => ({
     id: gate.id,
-    name: gate.id,
+    name: gate.message ?? gate.id,
     depends_on: [gate.step_id],
     status: 'PENDING' as const,
     cascade: false,

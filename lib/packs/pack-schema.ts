@@ -19,10 +19,10 @@ export const PackActionRetrySchema = z.object({
   max_attempts: z.number().int().positive().optional(),
   delay_ms: z.number().int().nonnegative().optional(),
   backoff: z.enum(['none', 'linear', 'exponential']).optional(),
-  retry_on: z.array(z.string().min(1)).default([]),
+  retry_on: z.array(z.string().min(1)).optional(),
 })
 
-export const PackActionConfigSchema = z.object({
+const PackActionConfigBaseSchema = z.object({
   command: z.string().min(1).optional(),
   tool_slug: z.string().min(1).optional(),
   arguments: z.record(z.string(), z.unknown()).optional(),
@@ -36,16 +36,41 @@ export const PackActionConfigSchema = z.object({
   if_false: z.array(z.unknown()).optional(),
 }).catchall(z.unknown())
 
-export const PackActionSchema = z.object({
+const PackActionBaseSchema = z.object({
   id: z.string().min(1),
   type: z.enum(['cli', 'composio_tool', 'skill', 'read_file', 'write_file', 'sub_agent', 'approval', 'conditional']),
   description: z.string().min(1).optional(),
-  config: PackActionConfigSchema.default({}),
+  config: PackActionConfigBaseSchema.default({}),
   retry: PackActionRetrySchema.optional(),
   timeout_ms: z.number().int().nonnegative().optional(),
   output_key: z.string().min(1).optional(),
   on_failure: z.enum(['abort_step', 'abort_workflow', 'skip', 'warn', 'retry']).optional(),
 })
+
+function validateConditionalBranches(
+  action: z.infer<typeof PackActionBaseSchema>,
+  ctx: z.RefinementCtx,
+  path: Array<string | number> = [],
+): void {
+  if (action.type !== 'conditional') return
+  for (const branchName of ['if_true', 'if_false'] as const) {
+    const branch = action.config[branchName]
+    if (!Array.isArray(branch)) continue
+    branch.forEach((candidate, index) => {
+      const parsed = PackActionBaseSchema.safeParse(candidate)
+      if (!parsed.success) {
+        for (const issue of parsed.error.issues) {
+          ctx.addIssue({ ...issue, path: [...path, 'config', branchName, index, ...issue.path] })
+        }
+        return
+      }
+      validateConditionalBranches(parsed.data, ctx, [...path, 'config', branchName, index])
+    })
+  }
+}
+
+export const PackActionConfigSchema = PackActionConfigBaseSchema
+export const PackActionSchema = PackActionBaseSchema.superRefine((action, ctx) => validateConditionalBranches(action, ctx))
 
 export const PackStepSchema = z.object({
   id: packIdSchema('Step'),

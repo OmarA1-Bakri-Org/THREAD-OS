@@ -1,14 +1,18 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { cp, mkdir, mkdtemp, rm, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
-import { join } from 'path'
-import { loadPack } from './loader'
-import { compilePack } from './compiler'
-import { installPack } from './install'
+import { join, resolve } from 'path'
+// @ts-expect-error Bun query imports used to isolate module cache from test-level mocks
+const { loadPack } = await import('./loader.ts?apollo-pack-loader-suite') as { loadPack: typeof import('./loader').loadPack }
+// @ts-expect-error Bun query imports used to isolate module cache from test-level mocks
+const { compilePack } = await import('./compiler.ts?apollo-pack-compiler-suite') as { compilePack: typeof import('./compiler').compilePack }
+// @ts-expect-error Bun query imports used to isolate module cache from test-level mocks
+const { installPack } = await import('./install.ts?apollo-pack-install-suite') as { installPack: typeof import('./install').installPack }
 import { readSequence, writeSequence } from '@/lib/sequence/parser'
+import type { Sequence } from '@/lib/sequence/schema'
 import { readThreadSurfaceState } from '@/lib/thread-surfaces/repository'
 
-const repoBase = '/mnt/c/Users/albak/xdev/thredOS-worktrees/apollo-pack'
+const repoBase = resolve(process.env.APOLLO_PACK_REPO_PATH ?? process.cwd())
 const packRelativeDir = '.threados/packs/apollo-segment-builder/1.0.0'
 const promptDir = '.threados/prompts'
 const sharedReferencesDir = 'shared_references'
@@ -43,7 +47,7 @@ describe('apollo segment builder pack', () => {
     await cp(join(repoBase, promptDir), join(basePath, promptDir), { recursive: true })
     await cp(join(repoBase, sharedReferencesDir), join(basePath, sharedReferencesDir), { recursive: true })
 
-    await writeSequence(basePath, {
+    const seedSequence: Sequence = {
       version: '1.0',
       name: 'Seed Sequence',
       steps: [{
@@ -56,7 +60,8 @@ describe('apollo segment builder pack', () => {
         status: 'READY',
       }],
       gates: [],
-    } as any)
+    }
+    await writeSequence(basePath, seedSequence)
     await writeFile(join(basePath, '.threados/prompts/seed-step.md'), 'seed\n', 'utf-8')
 
     const manifest = await loadPack(basePath, 'apollo-segment-builder', '1.0.0')

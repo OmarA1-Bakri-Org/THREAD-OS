@@ -1,4 +1,4 @@
-import { appendFile, readFile, mkdir, readdir } from 'fs/promises'
+import { appendFile, readFile, mkdir } from 'fs/promises'
 import { join } from 'path'
 import { ApprovalSchema, type Approval } from '@/lib/contracts/schemas'
 import { assertSafePathSegment, resolvePathWithinBase } from '../runtime/path-safety'
@@ -58,24 +58,14 @@ export async function readApprovals(
 
 export async function hasApprovedApproval(
   basePath: string,
+  runId: string,
   targetRef: string,
   actionType: Approval['action_type'] = 'run',
 ): Promise<boolean> {
-  const runsPath = resolvePathWithinBase(basePath, RUNS_PATH, 'approval runs directory')
-  let runEntries: string[]
-  try {
-    runEntries = await readdir(runsPath)
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
-    throw error
-  }
-
-  for (const runId of runEntries) {
-    const approvals = foldApprovals(await readApprovals(basePath, runId))
-    if (approvals.some(approval => approval.action_type === actionType && approval.target_ref === targetRef && approval.status === 'approved')) {
-      return true
-    }
-  }
-
-  return false
+  const approvals = foldApprovals(await readApprovals(basePath, runId))
+  return approvals.some(approval =>
+    approval.action_type === actionType
+    && approval.target_ref === targetRef
+    && approval.status === 'approved'
+  )
 }

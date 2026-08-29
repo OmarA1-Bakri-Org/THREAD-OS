@@ -19,6 +19,7 @@ import type { Step, Sequence, StepStatus } from '../../sequence/schema'
 import { ROOT_THREAD_SURFACE_ID } from '../../thread-surfaces/constants'
 import { readThreadSurfaceState, withThreadSurfaceStateRevision, writeThreadSurfaceState } from '../../thread-surfaces/repository'
 import { completeRun, createReplacementRun, createRootThreadSurfaceRun } from '../../thread-surfaces/mutations'
+import { findApprovedActiveRunId, retireApprovalRun } from '../../approvals/active-run'
 import { beginStepRunIfSurfaceExists, finalizeStepRunWithRuntimeEvents, type StepRunScope } from '../../thread-surfaces/step-run-runtime'
 import { readRuntimeEventLog, type RuntimeDelegationEvent } from '../../thread-surfaces/runtime-event-log'
 import { provisionAllChildSequences } from '../../thread-surfaces/provision-child-sequence'
@@ -26,8 +27,6 @@ import { appendApproval, hasApprovedApproval } from '../../approvals/repository'
 import { appendTraceEvent } from '../../traces/writer'
 import {
   evaluateSequenceCondition,
-  evaluateRuntimeCondition,
-  buildConditionContext,
   readRuntimeContext,
 } from '../../runtime/context'
 import { AbortWorkflowError, assessSelectedStepEvidence, executeNativeOperationalAction, renderRuntimeContextTemplate } from '../../runtime/native-actions'
@@ -95,34 +94,32 @@ async function executeComposioTool(input: {
   arguments: Record<string, unknown>
   timeoutMs?: number
 }): Promise<unknown> {
-  const command = Bun.which('composio') ?? `${process.env.HOME}/.composio/composio`
+  const command = Bun.which('composio')
+  if (!command) throw new Error("Composio CLI not found in PATH; configure the CLI before running composio_tool actions")
   const proc = Bun.spawn({
     cmd: [command, 'execute', input.toolSlug, '-d', JSON.stringify(input.arguments ?? {})],
     stdout: 'pipe',
     stderr: 'pipe',
   })
-  const timeout = setTimeout(() => proc.kill(), input.timeoutMs ?? DEFAULT_TIMEOUT_MS)
-
+  const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      proc.kill()
+      reject(new Error(`Composio tool '${input.toolSlug}' timed out after ${timeoutMs}ms`))
+    }, timeoutMs)
+  })
   try {
-    const [stdout, stderr, exitCode] = await Promise.all([
-      new Response(proc.stdout).text(),
-      new Response(proc.stderr).text(),
-      proc.exited,
+    const [stdout, stderr, exitCode] = await Promise.race([
+      Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text(), proc.exited]),
+      timeout,
     ])
-
-    if (exitCode !== 0) {
-      throw new Error(stderr.trim() || stdout.trim() || `Composio tool '${input.toolSlug}' failed with exit code ${exitCode}`)
-    }
-
+    if (exitCode !== 0) throw new Error(stderr.trim() || stdout.trim() || `Composio tool '${input.toolSlug}' failed with exit code ${exitCode}`)
     const trimmed = stdout.trim()
     if (!trimmed) return null
-    try {
-      return JSON.parse(trimmed)
-    } catch {
-      return trimmed
-    }
+    try { return JSON.parse(trimmed) } catch { return trimmed }
   } finally {
-    clearTimeout(timeout)
+    if (timer) clearTimeout(timer)
   }
 }
 
@@ -141,19 +138,19 @@ async function executeStepActions(
   step: Step,
   runId: string,
   runtime: CLIRunRuntime,
+  approvalRunId: string | null = null,
   actions: Array<Record<string, unknown>> = (step.actions ?? []) as Array<Record<string, unknown>>,
 ): Promise<void> {
   for (const action of actions) {
     if (action.type === 'conditional') {
       const config = (action.config ?? {}) as Record<string, unknown>
-      const branchContext = buildConditionContext(sequence, await readRuntimeContext(basePath))
-      const branchActions = evaluateRuntimeCondition(String(config.condition ?? ''), branchContext)
+      const branchActions = await evaluateSequenceCondition(basePath, sequence, String(config.condition ?? ''))
         ? config.if_true
         : config.if_false
       const nestedActions = Array.isArray(branchActions)
         ? branchActions.filter((candidate): candidate is Record<string, unknown> => !!candidate && typeof candidate === 'object')
         : []
-      await executeStepActions(basePath, sequence, step, runId, runtime, nestedActions)
+      await executeStepActions(basePath, sequence, step, runId, runtime, approvalRunId, nestedActions)
       continue
     }
 
@@ -169,7 +166,7 @@ async function executeStepActions(
           ? action.description
           : null
 
-      if (await hasApprovedApproval(basePath, targetRef, 'run')) {
+      if (approvalRunId && await hasApprovedApproval(basePath, approvalRunId, targetRef, 'run')) {
         continue
       }
 
@@ -219,8 +216,7 @@ async function collectApprovalRequirements(
   for (const action of actions) {
     if (action.type === 'conditional') {
       const config = (action.config ?? {}) as Record<string, unknown>
-      const branchContext = buildConditionContext(sequence, await readRuntimeContext(basePath))
-      const branchActions = evaluateRuntimeCondition(String(config.condition ?? ''), branchContext)
+      const branchActions = await evaluateSequenceCondition(basePath, sequence, String(config.condition ?? ''))
         ? config.if_true
         : config.if_false
       const nestedActions = Array.isArray(branchActions)
@@ -244,26 +240,15 @@ async function collectApprovalRequirements(
   return requirements
 }
 
-async function hasSatisfiedApprovalRequirements(basePath: string, sequence: Sequence, step: Step): Promise<boolean> {
+async function findReusableRunApprovalId(basePath: string, sequence: Sequence, step: Step): Promise<string | null> {
   const requirements = await collectApprovalRequirements(basePath, sequence, step)
-  if (requirements.length === 0) return false
-
-  for (const requirement of requirements) {
-    if (!await hasApprovedApproval(basePath, requirement.targetRef, requirement.actionType)) {
-      return false
-    }
-  }
-
-  return true
+  const targets = requirements.length > 0
+    ? requirements.map(requirement => requirement.targetRef)
+    : [`step:${step.id}`]
+  return findApprovedActiveRunId(basePath, targets, 'run')
 }
 
-async function hasReusableRunApproval(basePath: string, sequence: Sequence, step: Step): Promise<boolean> {
-  if (await hasSatisfiedApprovalRequirements(basePath, sequence, step)) {
-    return true
-  }
 
-  return hasApprovedApproval(basePath, `step:${step.id}`, 'run')
-}
 
 async function evaluateStepCondition(basePath: string, sequence: Sequence, step: Step): Promise<boolean> {
   return evaluateSequenceCondition(basePath, sequence, (step as Step & { condition?: string }).condition)
@@ -288,7 +273,11 @@ async function reconcileSkippedSteps(basePath: string, sequence: Sequence): Prom
   const skippedIds: string[] = []
   let changed = false
 
+  const maxPasses = Math.max(2, sequence.steps.length + 1)
+  let pass = 0
   while (true) {
+    pass += 1
+    if (pass > maxPasses) throw new Error('reconcileSkippedSteps exceeded bounded passes')
     const completedNodes = getCompletedNodeIds(sequence)
     let changedThisPass = false
 
@@ -315,11 +304,7 @@ async function reconcileSkippedSteps(basePath: string, sequence: Sequence): Prom
   return skippedIds
 }
 
-function renderActionContract(step: Step): string {
-  const actions = (step as Step & { actions?: unknown[] }).actions
-  if (!Array.isArray(actions) || actions.length === 0) return ''
-  return `\n\n## THREADOS ACTION CONTRACT\n${JSON.stringify(actions, null, 2)}\n`
-}
+
 
 /**
  * Get runnable steps (READY status with all dependencies satisfied)
@@ -330,7 +315,7 @@ async function getRunnableSteps(basePath: string, sequence: Sequence): Promise<R
 
   const steps = (await Promise.all(sequence.steps.map(async step => {
     const eligibleStatus = step.status === 'READY'
-      || (step.status === 'BLOCKED' && await hasReusableRunApproval(basePath, sequence, step))
+      || (step.status === 'BLOCKED' && (await findReusableRunApprovalId(basePath, sequence, step)) != null)
     if (!eligibleStatus) return null
 
     const dependenciesSatisfied = step.depends_on.every(depId => completedNodes.has(depId))
@@ -461,7 +446,8 @@ async function executeSingleStep(
 
   // Update status to RUNNING
   const policyConfig = (await PolicyEngine.load(basePath)).getConfig()
-  const approvalPresent = await hasReusableRunApproval(basePath, sequence, step)
+  const approvalRunId = step.status === 'BLOCKED' ? await findReusableRunApprovalId(basePath, sequence, step) : null
+  const approvalPresent = approvalRunId != null
   const currentSurfaceState = await readThreadSurfaceState(basePath)
   const surface = currentSurfaceState.threadSurfaces.find(candidate => candidate.id === getSurfaceId(step))
   const preRunDecisions = evaluateStepGates(step, sequence.steps, sequence.gates, {
@@ -470,7 +456,7 @@ async function executeSingleStep(
     crossSurfaceReads: policyConfig.cross_surface_reads,
     surfaceClass: surface?.surfaceClass ?? 'shared',
     revealState: surface?.surfaceClass === 'sealed' ? 'revealed' : (surface?.revealState ?? null),
-    isDependency: true,
+    isDependency: step.depends_on.length > 0,
     inputManifestPresent: true,
     approvalPresent,
   })
@@ -488,17 +474,20 @@ async function executeSingleStep(
     }
   }
 
+  if (approvalRunId) await retireApprovalRun(basePath, approvalRunId)
   step.status = 'RUNNING'
   await writeSequence(basePath, sequence)
 
   try {
-    await preflightStepEnvironment(basePath, step)
     const runtime = getCLIRunRuntime()
+    await preflightStepEnvironment(basePath, step, {
+      hasComposioExecutor: Boolean(globalThis.__THREADOS_CLI_RUN_RUNTIME__?.runComposioTool),
+    })
     const runtimeEventLogPath = getRuntimeEventLogPath(basePath, runId, stepId)
     const surfaceId = getSurfaceId(step)
     const startedAt = stepRuntime.stepRun?.startedAt ?? new Date().toISOString()
     const inputManifest = makeStepInputManifest(step, runId, surfaceId, startedAt)
-    await executeStepActions(basePath, sequence, step, runId, runtime)
+    await executeStepActions(basePath, sequence, step, runId, runtime, approvalRunId)
     const preparedPrompt = await prepareStepPromptForDispatch({
       stepId,
       step,
@@ -611,16 +600,19 @@ async function createRootRunScopeForCommand(basePath: string, sequenceName: stri
   await writeThreadSurfaceState(basePath, withThreadSurfaceStateRevision(currentState, nextState))
 }
 
-async function finalizeRootRunScopeForCommand(basePath: string, runId: string, success: boolean, runSummary: string) {
+async function finalizeRootRunScopeForCommand(
+  basePath: string,
+  runId: string,
+  runStatus: 'pending' | 'successful' | 'failed',
+  runSummary: string,
+) {
   const currentState = await readThreadSurfaceState(basePath)
-  const nextState = completeRun(currentState, {
-    runId,
-    runStatus: success ? 'successful' : 'failed',
-    endedAt: new Date().toISOString(),
-    runSummary,
-  }).state
+  const nextState = runStatus === 'pending'
+    ? completeRun(currentState, { runId, runStatus: 'pending', endedAt: null, runSummary }).state
+    : completeRun(currentState, { runId, runStatus, endedAt: new Date().toISOString(), runSummary }).state
   await writeThreadSurfaceState(basePath, withThreadSurfaceStateRevision(currentState, nextState))
 }
+
 
 async function createStepRunScope(basePath: string, _sequence: Sequence, step: Step): Promise<{ stepRun: StepRunScope | null }> {
   const currentState = await readThreadSurfaceState(basePath)
@@ -693,7 +685,7 @@ async function handleRunStep(
 
   const precheckResult = await getDirectRunPrecheckResult(basePath, stepId, runId)
   const result = precheckResult ?? await executeSingleStep(basePath, sequence, stepId, runId, mprocsClient)
-  await finalizeRootRunScopeForCommand(basePath, runId, result.success, `step:${stepId}`)
+  await finalizeRootRunScopeForCommand(basePath, runId, result.status === 'BLOCKED' ? 'pending' : result.success ? 'successful' : 'failed', `step:${stepId}`)
 
   const mprocsMap = await readMprocsMap(basePath)
   const processIndex = Object.keys(mprocsMap).length
@@ -732,7 +724,12 @@ async function handleRunRunnable(
   const waiting = new Set<string>()
   const alreadyExecuted = new Set<string>()
 
+  const maxPasses = Math.max(2, sequence.steps.length * 2 + 1)
+  let pass = 0
   while (true) {
+    pass += 1
+    if (pass > maxPasses) throw new Error('run runnable exceeded bounded frontier passes')
+    const progressBefore = alreadyExecuted.size + skipped.size + waiting.size
     const latestSequence = await readSequence(basePath)
     const { steps: latestRunnableSteps, skippedIds: latestSkippedIds } = await getRunnableSteps(basePath, latestSequence)
     for (const skippedStepId of latestSkippedIds) {
@@ -766,12 +763,14 @@ async function handleRunRunnable(
     }
 
     if (executed.some(result => result.abortWorkflow)) break
+    const progressAfter = alreadyExecuted.size + skipped.size + waiting.size
+    if (progressAfter <= progressBefore) throw new Error('run runnable made no progress')
   }
 
   const result: RunRunnableResult = executed.length === 0 && skipped.size === 0 && waiting.size === 0
     ? { success: true, executed, skipped: Array.from(skipped), waiting: Array.from(waiting), error: 'No runnable steps found' }
     : { success: executed.every(e => e.success), executed, skipped: Array.from(skipped), waiting: Array.from(waiting) }
-  await finalizeRootRunScopeForCommand(basePath, runId, result.success, 'mode:runnable')
+  await finalizeRootRunScopeForCommand(basePath, runId, executed.some(entry => entry.status === 'BLOCKED') ? 'pending' : result.success ? 'successful' : 'failed', 'mode:runnable')
   outputRunnableResult(result, options)
 }
 
@@ -878,7 +877,7 @@ async function handleRunGroup(
     skipped: Array.from(skipped),
     waiting: Array.from(waiting),
   }
-  await finalizeRootRunScopeForCommand(basePath, runId, result.success, `group:${groupId}`)
+  await finalizeRootRunScopeForCommand(basePath, runId, executed.some(entry => entry.status === 'BLOCKED') ? 'pending' : result.success ? 'successful' : 'failed', `group:${groupId}`)
 
   if (options.json) {
     console.log(JSON.stringify(result))

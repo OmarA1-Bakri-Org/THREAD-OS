@@ -1,10 +1,10 @@
 import { defineConfig, devices } from '@playwright/test'
 
-const PORT = process.env.PLAYWRIGHT_PORT ?? '4302'
-const BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? `http://localhost:${PORT}`
-const ARTIFACTS_DIR = process.env.PLAYWRIGHT_ARTIFACTS_DIR ?? 'test-results/verify/manual-direct'
-const STORAGE_STATE_PATH = process.env.PLAYWRIGHT_STORAGE_STATE_PATH ?? `${ARTIFACTS_DIR}/auth-storage-state.json`
-const REPORT_PATH = process.env.PLAYWRIGHT_JSON_REPORT_PATH ?? `${ARTIFACTS_DIR}/playwright-report.json`
+const port = process.env.PLAYWRIGHT_port ?? '4302'
+const baseUrl = process.env.PLAYWRIGHT_baseUrl ?? `http://localhost:${port}`
+const artifactsDir = process.env.PLAYWRIGHT_artifactsDir ?? 'test-results/verify/manual-direct'
+const storageStatePath = process.env.PLAYWRIGHT_storageStatePath ?? `${artifactsDir}/auth-storage-state.json`
+const REport_PATH = process.env.PLAYWRIGHT_JSON_REport_PATH ?? `${artifactsDir}/playwright-report.json`
 
 export default defineConfig({
   testDir: './test/ui',
@@ -13,15 +13,15 @@ export default defineConfig({
   fullyParallel: false,
   retries: 0,
   workers: 1,
-  outputDir: `${ARTIFACTS_DIR}/playwright-output`,
+  outputDir: `${artifactsDir}/playwright-output`,
   reporter: [
     ['list'],
-    ['json', { outputFile: REPORT_PATH }],
+    ['json', { outputFile: REport_PATH }],
   ],
   globalSetup: './test/ui/global-verify-setup.ts',
   use: {
-    baseURL: BASE_URL,
-    storageState: STORAGE_STATE_PATH,
+    baseURL: baseUrl,
+    storageState: storageStatePath,
     trace: 'retain-on-failure',
     video: 'retain-on-failure',
     screenshot: 'only-on-failure',

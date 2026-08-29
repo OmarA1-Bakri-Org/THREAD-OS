@@ -5,7 +5,10 @@ import { join } from 'path'
 import YAML from 'yaml'
 import { readApprovals } from '@/lib/approvals/repository'
 import { recordApprovedApprovalLifecycle } from '@/lib/approvals/runtime'
+import { findApprovedActiveRunId } from '@/lib/approvals/active-run'
 import { readTraceEvents } from '@/lib/traces/reader'
+import { readThreadSurfaceState, writeThreadSurfaceState } from '@/lib/thread-surfaces/repository'
+import { createRootThreadSurfaceRun, emptyThreadSurfaceState } from '@/lib/thread-surfaces/mutations'
 
 let basePath = ''
 
@@ -167,6 +170,10 @@ describe.serial('run route approval proof', () => {
     const body = await response.json()
     expect(body.success).toBe(false)
     expect(body.status).toBe('BLOCKED')
+    const surfaceState = await readThreadSurfaceState(basePath)
+    const rootRun = surfaceState.runs.find(run => run.id === body.runId)
+    expect(rootRun?.runStatus).toBe('pending')
+    expect(rootRun?.endedAt ?? null).toBeNull()
     const approvals = await readApprovals(basePath, body.runId)
     expect(approvals.at(-1)?.notes).toBe('Review Mid-Market | saved 1 | both 1 | dupes 1 | credits 7/30 | stage stage-789')
   })
@@ -196,6 +203,14 @@ describe.serial('run route approval proof', () => {
       gates: [],
     })
     await writePrompt('step-approved-write')
+    const approvalStartedAt = '2026-03-10T09:00:00.000Z'
+    await writeThreadSurfaceState(basePath, createRootThreadSurfaceRun(emptyThreadSurfaceState, {
+      surfaceId: 'thread-root',
+      surfaceLabel: 'approval-reopen-seq',
+      createdAt: approvalStartedAt,
+      runId: 'seed-approval-run',
+      startedAt: approvalStartedAt,
+    }).state)
     await recordApprovedApprovalLifecycle({
       basePath,
       runId: 'seed-approval-run',
@@ -207,16 +222,21 @@ describe.serial('run route approval proof', () => {
       notes: 'seed approval',
     })
 
+    await expect(findApprovedActiveRunId(basePath, ['step:step-approved-write'], 'run')).resolves.toBe('seed-approval-run')
+
     const { POST } = await import('@/app/api/run/route')
     const response = await POST(new Request('http://localhost/api/run', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ stepId: 'step-approved-write', confirmPolicy: true }),
+      body: JSON.stringify({ stepId: 'step-approved-write' }),
     }))
 
     expect(response.status).toBe(200)
     const body = await response.json()
     expect(body.success).toBe(true)
+    const surfaceState = await readThreadSurfaceState(basePath)
+    const approvalRun = surfaceState.runs.find(run => run.id === 'seed-approval-run')
+    expect(approvalRun?.runStatus).toBe('cancelled')
 
     const persistedSequence = YAML.parse(await Bun.file(join(basePath, '.threados', 'sequence.yaml')).text())
     expect(persistedSequence.steps.find((step: { id: string; status: string }) => step.id === 'step-approved-write')?.status).toBe('DONE')

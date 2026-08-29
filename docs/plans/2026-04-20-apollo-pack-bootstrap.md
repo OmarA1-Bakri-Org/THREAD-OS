@@ -3,7 +3,7 @@
 ## What was completed
 
 - Created clean worktree:
-  - `/mnt/c/Users/albak/xdev/thredOS-worktrees/apollo-pack`
+  - `repository checkout`
   - branch: `feat/apollo-pack`
 - Added starter pack manifest:
   - `.threados/packs/apollo-segment-builder/1.0.0/pack.yaml`

@@ -33,7 +33,7 @@ export function resolveStepPromptFile(step: Step): string {
 }
 
 export function resolveStepPromptPath(basePath: string, step: Step): string {
-  return resolvePathWithinBase(basePath, resolveStepPromptFile(step), `prompt path for step '${step.id}'`)
+  return resolvePathWithinBase(basePath, getStepPromptRef(step), `prompt path for step '${step.id}'`)
 }
 
 export async function validateStepPromptExists(basePath: string, step: Step): Promise<boolean> {
@@ -49,10 +49,22 @@ export async function readStepPrompt(basePath: string, step: Step): Promise<stri
   return readFile(resolveStepPromptPath(basePath, step), 'utf-8')
 }
 
+function sanitizeActionContractValue(value: unknown, key?: string): unknown {
+  if (key && ['command', 'arguments', 'api_key', 'token', 'secret', 'password'].includes(key.toLowerCase())) return '[REDACTED]'
+  if (Array.isArray(value)) return value.map(item => sanitizeActionContractValue(item))
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([entryKey, entryValue]) => [
+      entryKey,
+      sanitizeActionContractValue(entryValue, entryKey),
+    ]))
+  }
+  return value
+}
+
 export function renderStepActionContract(step: Step): string {
   const actions = (step as Step & { actions?: unknown[] }).actions
   if (!Array.isArray(actions) || actions.length === 0) return ''
-  return `\n\n## THREADOS ACTION CONTRACT\n${JSON.stringify(actions, null, 2)}\n`
+  return `\n\n## THREADOS ACTION CONTRACT\n${JSON.stringify(actions.map(action => sanitizeActionContractValue(action)), null, 2)}\n`
 }
 
 export function appendStepActionContract(rawPrompt: string, step: Step): string {
@@ -61,9 +73,9 @@ export function appendStepActionContract(rawPrompt: string, step: Step): string 
 
 export async function prepareStepPromptForDispatch(options: PrepareStepPromptOptions): Promise<PreparedStepPrompt> {
   const rawPrompt = await readStepPrompt(options.basePath, options.step)
-  const promptWithActions = appendStepActionContract(rawPrompt, options.step)
+  const promptWithActions = options.step.model === 'shell' ? rawPrompt : appendStepActionContract(rawPrompt, options.step)
   const promptForDispatch = options.step.model === 'shell'
-    ? promptWithActions
+    ? rawPrompt
     : await compilePrompt({
         stepId: options.stepId,
         step: options.step,

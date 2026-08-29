@@ -23,8 +23,10 @@ prerequisites:
     on_unavailable: warn
   env_vars:
   - APOLLO_API_KEY
+  - THREADOS_STATE_MANAGER_PATH
+  - THREADOS_TELEGRAM_CHAT_ID
   key_ids:
-    telegram_chat_id: '1778273779'
+    telegram_chat_id: env:THREADOS_TELEGRAM_CHAT_ID
 shared_references:
 - id: compliance_rules
   path: shared_references/compliance-rules.md
@@ -120,7 +122,7 @@ steps:
   - id: run_health_check
     type: cli
     config:
-      command: python C:/Users/OmarAl-Bakri/Claude_Code_Automations/scripts/state_manager.py
+      command: python ${THREADOS_STATE_MANAGER_PATH}
         health-check
     output_key: health
     retry:
@@ -145,7 +147,7 @@ steps:
   - id: register
     type: cli
     config:
-      command: python C:/Users/OmarAl-Bakri/Claude_Code_Automations/scripts/state_manager.py
+      command: python ${THREADOS_STATE_MANAGER_PATH}
         register-agent --name "apollo_segment_builder" --channels "multi_platform"
         --capabilities "segment_building,apollo_discovery,contact_enrichment,apollo_stage_tagging"
     on_failure: warn
@@ -164,28 +166,28 @@ steps:
   - id: pre_session_check
     type: cli
     config:
-      command: python C:/Users/OmarAl-Bakri/Claude_Code_Automations/scripts/state_manager.py
+      command: python ${THREADOS_STATE_MANAGER_PATH}
         pre-session-check --agent "apollo_segment_builder"
     output_key: session_state
     on_failure: warn
   - id: get_messages
     type: cli
     config:
-      command: python C:/Users/OmarAl-Bakri/Claude_Code_Automations/scripts/state_manager.py
+      command: python ${THREADOS_STATE_MANAGER_PATH}
         get-messages --agent "apollo_segment_builder"
     output_key: agent_messages
     on_failure: warn
   - id: recall_memories
     type: cli
     config:
-      command: python C:/Users/OmarAl-Bakri/Claude_Code_Automations/scripts/state_manager.py
+      command: python ${THREADOS_STATE_MANAGER_PATH}
         recall --agent "apollo_segment_builder" --limit 20
     output_key: memories
     on_failure: skip
   - id: load_knowledge
     type: cli
     config:
-      command: python C:/Users/OmarAl-Bakri/Claude_Code_Automations/scripts/state_manager.py
+      command: python ${THREADOS_STATE_MANAGER_PATH}
         query-knowledge --category "outreach" --tags "segment,icp"
     output_key: knowledge
     on_failure: skip
@@ -203,8 +205,15 @@ steps:
   - id: create_dirs
     type: cli
     config:
-      command: mkdir -p /tmp/apollo-segment && mkdir -p /tmp/shared-intel
+      command: mkdir -p .threados/tmp/apollo-segment && mkdir -p .threados/tmp/shared-intel
     on_failure: abort_step
+  - id: capture_telegram_chat_id
+    type: cli
+    description: Capture the optional Telegram target from the local runtime environment
+    config:
+      command: 'if [ -n "${THREADOS_TELEGRAM_CHAT_ID:-}" ]; then printf "%s" "$THREADOS_TELEGRAM_CHAT_ID"; fi'
+    output_key: telegram_chat_id
+    on_failure: skip
 - id: input-collection
   name: ICP Input Collection
   type: base
@@ -216,6 +225,7 @@ steps:
   - pre-session
   prompt_file: .threados/prompts/input-collection.md
   execution: sequential
+  # Interactive operator Q&A is bounded to 10 minutes to avoid orphaned approval sessions.
   timeout_ms: 600000
   actions:
   - id: detect_mode
@@ -246,9 +256,9 @@ steps:
         on_failure: abort_workflow
   - id: write_icp_config
     type: write_file
-    description: Persist ICP config to /tmp/apollo-segment/icp-config.json
+    description: Persist ICP config to .threados/tmp/apollo-segment/icp-config.json
     config:
-      file_path: /tmp/apollo-segment/icp-config.json
+      file_path: .threados/tmp/apollo-segment/icp-config.json
     on_failure: abort_workflow
 - id: apollo-saved-contacts-search
   name: Apollo Saved Contacts Search
@@ -270,7 +280,7 @@ steps:
     config:
       subagent_type: general-purpose
       prompt: "Execute Apollo Segment Builder Phase 1a: Apollo Saved Contacts Search.\
-        \ You have access to Rube Apollo tools.\n\nINPUT: Read /tmp/apollo-segment/icp-config.json\
+        \ You have access to Rube Apollo tools.\n\nINPUT: Read .threados/tmp/apollo-segment/icp-config.json\
         \ for filters.\n\n1. List available contact stages (segment tags):\n   Use\
         \ APOLLO_LIST_CONTACT_STAGES. Capture all { id, name } pairs.\n\n2. Check\
         \ Apollo API credits (soft gate):\n   Use APOLLO_VIEW_API_USAGE_STATS. If\
@@ -285,7 +295,7 @@ steps:
         \   - Company domain / industry match\n   - Geography match (if location data\
         \ available)\n\n5. OWNERSHIP CHECK (MANDATORY): Keep only contacts where owner_id\
         \ matches Omar's Apollo user id OR owner is blank. Drop records owned by others.\n\
-        \n6. Write /tmp/apollo-segment/saved-contacts.json with structure:\n   { generated_at,\
+        \n6. Write .threados/tmp/apollo-segment/saved-contacts.json with structure:\n   { generated_at,\
         \ stages_available: [{ id, name }], total_contacts, contacts: [{ source: 'apollo_saved',\
         \ apollo_contact_id, apollo_person_id, name, email, title, company, company_domain,\
         \ organization_id, phone, current_stage_id, current_stage_name, owner_id }]\
@@ -312,7 +322,7 @@ steps:
     config:
       subagent_type: general-purpose
       prompt: "Execute Apollo Segment Builder Phase 1b: Apollo Prospect Discovery.\
-        \ You have access to Rube Apollo tools.\n\nINPUT: Read /tmp/apollo-segment/icp-config.json\
+        \ You have access to Rube Apollo tools.\n\nINPUT: Read .threados/tmp/apollo-segment/icp-config.json\
         \ for filters (titles, industry_keywords, geographies, company_size_min/max,\
         \ email_status).\n\n1. CHECK APOLLO API CREDITS FIRST (hard gate):\n   Use\
         \ APOLLO_VIEW_API_USAGE_STATS. If credits critically low, flag to orchestrator\
@@ -333,12 +343,12 @@ steps:
         \   - Lane D (Technical): CTO, Engineering, Platform, Infrastructure\n   -\
         \ Lane E (Compliance): Compliance, Risk, Regulatory\n\n4. PRE-ENRICHMENT DEDUP\
         \ (CRITICAL — prevents double-spend). For each prospect, check FalkorDB:\n\
-        \   python C:/Users/OmarAl-Bakri/Claude_Code_Automations/scripts/state_manager.py\
+        \   python ${THREADOS_STATE_MANAGER_PATH}\
         \ check-contact --email \"prospect@company.com\" --name \"Name\" --company-name\
         \ \"Company\"\n   Tag prospect with already_enriched: true if FalkorDB returns\
         \ existing email/phone — Phase 3 will skip these.\n\n5. Do NOT spend enrichment\
         \ credits in this phase. Collect has_email / has_direct_phone flags from APOLLO_PEOPLE_SEARCH\
-        \ and record them on each prospect.\n\n6. Write /tmp/apollo-segment/discovered-prospects.json\
+        \ and record them on each prospect.\n\n6. Write .threados/tmp/apollo-segment/discovered-prospects.json\
         \ with structure:\n   { generated_at, credits_used: 0, credits_remaining,\
         \ organizations_searched, prospects: [{ source: 'apollo_discovery', apollo_person_id,\
         \ name, title, email (nullable), has_email, has_direct_phone, phone (nullable),\
@@ -366,9 +376,9 @@ steps:
       subagent_type: general-purpose
       prompt: "Execute Apollo Segment Builder Phase 2: Merge, Dedup & Compliance.\
         \ You have access to the state_manager.py CLI.\n\nINPUTS (read these files;\
-        \ any may be missing):\n- /tmp/apollo-segment/saved-contacts.json (from Phase\
-        \ 1a)\n- /tmp/apollo-segment/discovered-prospects.json (from Phase 1b)\n-\
-        \ /tmp/apollo-segment/icp-config.json\n\nSHARED REFERENCES (read for context):\n\
+        \ any may be missing):\n- .threados/tmp/apollo-segment/saved-contacts.json (from Phase\
+        \ 1a)\n- .threados/tmp/apollo-segment/discovered-prospects.json (from Phase 1b)\n-\
+        \ .threados/tmp/apollo-segment/icp-config.json\n\nSHARED REFERENCES (read for context):\n\
         - shared_references/compliance-rules.md\n- shared_references/persona-routing.md\n\
         - shared_references/prospect-selection.md\n- shared_references/thegent-company-info.md\n\
         \nSTEPS:\n\n1. MERGE saved-contact and discovery results into a single list.\n\
@@ -376,7 +386,7 @@ steps:
         \ (c) fuzzy name+company. When both sources have the same contact, merge (prefer\
         \ saved record for CRM fields, prefer discovery for firmographics). Mark source:\
         \ 'both'.\n\n3. COMPLIANCE CHECK for each contact (prefer pre-session-check\
-        \ cache first, fall back to check-contact for cache misses):\n   python C:/Users/OmarAl-Bakri/Claude_Code_Automations/scripts/state_manager.py\
+        \ cache first, fall back to check-contact for cache misses):\n   python ${THREADOS_STATE_MANAGER_PATH}\
         \ check-contact --email \"{email}\" --name \"{name}\" --company-name \"{company}\"\
         \n   DO_NOT_CONTACT: exclude. CAUTION: include with flag. CLEAR: include.\n\
         \n4. PERSONA LANE assignment (A-E) using persona-routing.md title matching:\n\
@@ -398,7 +408,7 @@ steps:
         \ is null or phone is null AND already_enriched is false.\n    FLAG needs_create_in_apollo:\
         \ true for discovery-only contacts with no apollo_contact_id.\n\n11. HARD\
         \ GATE: at least 1 contact must pass. If empty, abort with exclusion breakdown.\n\
-        \n12. WRITE /tmp/apollo-segment/qualified-segment.json with structure:\n \
+        \n12. WRITE .threados/tmp/apollo-segment/qualified-segment.json with structure:\n \
         \   { generated_at, segment_name, total_qualified, excluded: { dnc, recently_contacted,\
         \ existing_pipeline, special_handling, non_omar_owned, duplicates }, contacts:\
         \ [{ name, email, title, company, company_domain, phone, source, apollo_contact_id,\
@@ -427,13 +437,13 @@ steps:
     config:
       subagent_type: general-purpose
       prompt: "Execute Apollo Segment Builder Phase 3: Apollo Enrichment. You have\
-        \ access to Rube Apollo tools.\n\nINPUTS:\n- /tmp/apollo-segment/qualified-segment.json\n\
-        - /tmp/apollo-segment/icp-config.json (icp_config.enrichment.max_apollo_credits\
+        \ access to Rube Apollo tools.\n\nINPUTS:\n- .threados/tmp/apollo-segment/qualified-segment.json\n\
+        - .threados/tmp/apollo-segment/icp-config.json (icp_config.enrichment.max_apollo_credits\
         \ caps spend, default 20)\n\nSTEPS:\n\n1. HARD CREDIT GATE: Check APOLLO_VIEW_API_USAGE_STATS.\
         \ If remaining < 10 OR icp_config.enrichment.max_apollo_credits already consumed,\
         \ abort with a partial enrichment report. When credits are tight, prioritise\
         \ High fit_score contacts.\n\n2. PRE-ENRICHMENT DEDUP (re-check FalkorDB —\
-        \ data may have updated since Phase 1b):\n   python C:/Users/OmarAl-Bakri/Claude_Code_Automations/scripts/state_manager.py\
+        \ data may have updated since Phase 1b):\n   python ${THREADOS_STATE_MANAGER_PATH}\
         \ check-contact --email \"{email_if_any}\" --name \"{name}\" --company-name\
         \ \"{company}\"\n   Skip any contact that now has an email in FalkorDB.\n\n\
         3. BULK ENRICH in batches of 10 using apollo_person_id when available (best\
@@ -445,7 +455,7 @@ steps:
         \ organization_name, domain (bare hostname, no protocol, no www.).\n\n5. RATE\
         \ LIMIT: Stop at icp_config.enrichment.max_apollo_credits. Tag remaining contacts\
         \ enrichment_skipped: 'credit_cap'.\n\n6. HANDLE 403 responses as hard stop\
-        \ — do NOT retry. Flag to orchestrator with error context.\n\n7. WRITE /tmp/apollo-segment/enriched-segment.json\
+        \ — do NOT retry. Flag to orchestrator with error context.\n\n7. WRITE .threados/tmp/apollo-segment/enriched-segment.json\
         \ — same schema as qualified-segment.json with enriched email/phone filled\
         \ in. Record actual credits_used and credits_remaining at the top of the file."
     output_key: enriched_segment
@@ -559,7 +569,7 @@ steps:
       condition: existing_apollo_match.contacts.length == 0
       if_true:
       - id: apollo_create
-        type: rube_tool
+        type: composio_tool
         config:
           tool_slug: APOLLO_CREATE_CONTACT
           arguments:
@@ -632,7 +642,7 @@ steps:
     type: cli
     description: Upsert contact node + WORKS_AT company relationship in FalkorDB
     config:
-      command: python C:/Users/OmarAl-Bakri/Claude_Code_Automations/scripts/state_manager.py
+      command: python ${THREADOS_STATE_MANAGER_PATH}
         upsert-contact --email "{{item.email}}" --name "{{item.name}}" --title "{{item.title}}"
         --company-name "{{item.company}}" --persona-lane "{{item.persona_lane}}" --classification
         "{{item.classification_or_COOL}}"
@@ -653,7 +663,7 @@ steps:
   - id: post_signal
     type: cli
     config:
-      command: python C:/Users/OmarAl-Bakri/Claude_Code_Automations/scripts/state_manager.py
+      command: python ${THREADOS_STATE_MANAGER_PATH}
         post-message --from-agent "apollo_segment_builder" --to-agent "{{item}}" --type
         "SEGMENT_BUILT" --payload '{"segment_name":"{{icp_config.segment_name}}","apollo_stage_name":"{{icp_config.output.apollo_stage_name}}","apollo_stage_id":"{{resolved_stage_id}}","contacts":{{approved_segment.contacts.length}},"persona_split":{{counts.persona_split}}}'
     on_failure: warn
@@ -672,7 +682,7 @@ steps:
   - id: remember_cmd
     type: cli
     config:
-      command: 'python C:/Users/OmarAl-Bakri/Claude_Code_Automations/scripts/state_manager.py
+      command: 'python ${THREADOS_STATE_MANAGER_PATH}
         remember --key "segment_{{icp_config.segment_name}}" --content "Built segment
         with {{approved_segment.contacts.length}} contacts. Sources: saved {{counts.saved}},
         discovery {{counts.discovery}}. Top industries: {{counts.industries}}. Top
@@ -718,13 +728,14 @@ steps:
   prompt_file: .threados/prompts/telegram-summary.md
   execution: sequential
   timeout_ms: 15000
+  condition: telegram_chat_id
   actions:
   - id: send_telegram
     type: composio_tool
     config:
       tool_slug: TELEGRAM_SEND_MESSAGE
       arguments:
-        chat_id: '1778273779'
+        chat_id: '{{telegram_chat_id}}'
         text: 'Apollo Segment Built: {{icp_config.segment_name}}
 
 
@@ -755,7 +766,7 @@ steps:
   - id: log_session_cmd
     type: cli
     config:
-      command: 'python C:/Users/OmarAl-Bakri/Claude_Code_Automations/scripts/state_manager.py
+      command: 'python ${THREADOS_STATE_MANAGER_PATH}
         log-session --session-id "apollo-segment-{{date}}-{{time}}" --agent-name "apollo_segment_builder"
         --skills-run "segment_building,apollo_saved_search,apollo_discovery,apollo_enrichment,apollo_stage_tagging"
         --contacts-processed {{qualified_segment.total_qualified}} --interactions-logged
@@ -768,7 +779,7 @@ steps:
     type: cli
     description: Remove temp working directory (NOT shared-intel)
     config:
-      command: rm -rf /tmp/apollo-segment/
+      command: rm -rf .threados/tmp/apollo-segment/
     on_failure: skip
 gate_sets:
 - apollo-preflight
@@ -858,7 +869,7 @@ gates:
   step_id: apollo-saved-contacts-search
   when: post
   type: soft
-  check: file_exists('/tmp/apollo-segment/saved-contacts.json')
+  check: file_exists('.threados/tmp/apollo-segment/saved-contacts.json')
   on_fail: warn
   message: Saved Contacts sub-agent did not produce saved-contacts.json — merge will
     use discovery data only
@@ -880,7 +891,7 @@ gates:
   step_id: apollo-discovery
   when: post
   type: soft
-  check: file_exists('/tmp/apollo-segment/discovered-prospects.json')
+  check: file_exists('.threados/tmp/apollo-segment/discovered-prospects.json')
   on_fail: warn
   message: Discovery sub-agent did not produce discovered-prospects.json — merge will
     use saved-contacts only
@@ -903,7 +914,7 @@ gates:
   step_id: merge-dedup-comply
   when: post
   type: hard
-  check: file_exists('/tmp/apollo-segment/qualified-segment.json')
+  check: file_exists('.threados/tmp/apollo-segment/qualified-segment.json')
   on_fail: abort
   message: Merge sub-agent did not produce qualified-segment.json
 - id: qualified-valid-json
@@ -932,7 +943,7 @@ gates:
   step_id: enrichment
   when: post
   type: soft
-  check: file_exists('/tmp/apollo-segment/enriched-segment.json')
+  check: file_exists('.threados/tmp/apollo-segment/enriched-segment.json')
   on_fail: warn
   message: Enrichment sub-agent did not produce enriched-segment.json — proceeding
     with qualified-segment.json

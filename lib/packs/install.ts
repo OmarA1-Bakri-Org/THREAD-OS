@@ -1,5 +1,5 @@
-import { access, readFile } from 'fs/promises'
-import { isAbsolute, join } from 'path'
+import { readFile } from 'fs/promises'
+import { join } from 'path'
 import { deletePrompt, readPrompt, validatePromptExists, writePrompt } from '@/lib/prompts/manager'
 import type { LibraryCatalog } from '@/lib/library/types'
 import {
@@ -18,6 +18,7 @@ import {
   type ThreadSurfaceState,
 } from '@/lib/thread-surfaces/repository'
 import type { ThreadSurface } from '@/lib/thread-surfaces/types'
+import { resolveExistingPathWithinBase } from '@/lib/runtime/path-safety'
 import { compilePack } from './compiler'
 import { loadPack } from './loader'
 import type { PackManifest } from './pack-schema'
@@ -97,13 +98,14 @@ function buildPromptTemplate(manifest: PackManifest, step: Step): string {
   ].join('\n')
 }
 
-function resolvePromptSourceCandidates(basePath: string, packRoot: string, promptFile: string): string[] {
+async function resolvePromptSourceCandidates(basePath: string, packRoot: string, promptFile: string): Promise<string[]> {
   const candidates = new Set<string>()
-  if (isAbsolute(promptFile)) {
-    candidates.add(promptFile)
-  } else {
-    candidates.add(join(packRoot, promptFile))
-    candidates.add(join(basePath, promptFile))
+  for (const root of [packRoot, basePath]) {
+    try {
+      candidates.add(await resolveExistingPathWithinBase(root, promptFile, 'pack prompt source'))
+    } catch {
+      // Missing or out-of-root candidates are not valid authored prompt sources.
+    }
   }
   return [...candidates]
 }
@@ -115,11 +117,12 @@ async function readAuthoredPromptContent(
 ): Promise<string | null> {
   if (!step.prompt_file) return null
 
-  for (const candidate of resolvePromptSourceCandidates(basePath, packRoot, step.prompt_file)) {
+  for (const candidate of await resolvePromptSourceCandidates(basePath, packRoot, step.prompt_file)) {
     try {
-      await access(candidate)
       return await readFile(candidate, 'utf-8')
-    } catch {}
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
   }
 
   return null

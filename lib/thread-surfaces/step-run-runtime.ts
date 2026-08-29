@@ -118,16 +118,14 @@ export function finalizeStepRunWithRuntimeEvents(
     return { state: nextState, stepRun: null, pendingChildSequences: [] }
   }
 
-  nextState = completeRun(nextState, {
-    runId: effectiveStepRun.runId,
-    runStatus: opts.runStatus,
-    endedAt: opts.runStatus === 'pending' ? null : opts.endedAt,
-    runSummary: opts.runStatus === 'successful'
-      ? `step:${opts.step.id}`
-      : opts.runStatus === 'pending'
-        ? `step:${opts.step.id}:blocked`
-        : `step:${opts.step.id}:failed`,
-  }).state
+  const runSummary = opts.runStatus === 'successful'
+    ? `step:${opts.step.id}`
+    : opts.runStatus === 'pending'
+      ? `step:${opts.step.id}:blocked`
+      : `step:${opts.step.id}:failed`
+  nextState = opts.runStatus === 'pending'
+    ? completeRun(nextState, { runId: effectiveStepRun.runId, runStatus: 'pending', endedAt: null, runSummary }).state
+    : completeRun(nextState, { runId: effectiveStepRun.runId, runStatus: opts.runStatus, endedAt: opts.endedAt, runSummary }).state
 
   let pendingChildSequences: PendingChildSequence[] = []
   if (isSuccessful && opts.runtimeEvents.length > 0) {

@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import { buildConditionContext, evaluateRuntimeCondition, hydrateApolloApprovalRuntimeContext, storeRuntimeContextValue } from './context'
+import { buildConditionContext, evaluateRuntimeCondition, hydrateApolloApprovalRuntimeContext, storeRuntimeContextValue, type RuntimeContext } from './context'
 import type { Sequence } from '../sequence/schema'
 
 const baseSequence: Sequence = {
@@ -65,6 +65,25 @@ describe('runtime condition evaluation', () => {
     expect(evaluateRuntimeCondition('apollo_usage.reset_at == null', context)).toBe(true)
     expect(evaluateRuntimeCondition('apollo_usage.usage_remaining == 42', context)).toBe(true)
     expect(evaluateRuntimeCondition('icp_config.sources.length == 2', context)).toBe(true)
+  })
+
+  test('supports Apollo compound, comparison, and truthy-path conditions', () => {
+    const context = {
+      qualified_segment: { contacts: [{ id: '1' }] },
+      resolved_stage_id: 'stage-1',
+      icp_config: { output: { tag_in_apollo: true, signal_to_agents: ['outlook'] } },
+    }
+
+    expect(evaluateRuntimeCondition('icp_config.output.tag_in_apollo == true AND resolved_stage_id != null', context)).toBe(true)
+    expect(evaluateRuntimeCondition('icp_config.output.signal_to_agents.length > 0', context)).toBe(true)
+    expect(evaluateRuntimeCondition('qualified_segment.contacts', context)).toBe(true)
+  })
+
+  test('rejects unsupported condition syntax instead of silently returning false', () => {
+    expect(() => evaluateRuntimeCondition('first_run == true OR resolved_stage_id != null', {
+      first_run: true,
+      resolved_stage_id: 'stage-1',
+    })).toThrow('Unsupported runtime condition')
   })
 
   test('throws when a condition-critical runtime value has the wrong type', () => {
@@ -248,12 +267,12 @@ describe('apollo approval runtime hydration', () => {
   test('rejects invalid apollo contract-driving runtime value types', async () => {
     await expect(hydrateApolloApprovalRuntimeContext(tempDir, {
       apollo_artifact_dir: 42,
-    } as any)).rejects.toThrow("Runtime context value 'apollo_artifact_dir' must be a non-empty string when provided")
+    } as unknown as RuntimeContext)).rejects.toThrow("Runtime context value 'apollo_artifact_dir' must be a non-empty string when provided")
 
     await expect(hydrateApolloApprovalRuntimeContext(tempDir, {
       apollo_artifact_dir: artifactDir,
       resolved_stage_id: 123,
-    } as any)).rejects.toThrow("Runtime context value 'resolved_stage_id' must be a string or null when provided")
+    } as unknown as RuntimeContext)).rejects.toThrow("Runtime context value 'resolved_stage_id' must be a string or null when provided")
   })
 
   test('rejects prototype-polluting runtime context paths', async () => {

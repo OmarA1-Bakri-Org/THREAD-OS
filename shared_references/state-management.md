@@ -55,18 +55,21 @@ Loaded from `scripts/.env` via python-dotenv.
 ### Infrastructure Commands
 
 **health-check** — Test FalkorDB + SQLite + Apollo connectivity.
+
 ```bash
 python scripts/state_manager.py health-check
 # → {"falkordb": "OK", "sqlite": "OK", "apollo": "OK", "mode": "normal", ...}
 ```
 
 **init-graph** — Create indices, SQLite tables, register default agents (outlook_triage, outlook_bd, linkedin_triage, linkedin_bd, scheduler).
+
 ```bash
 python scripts/state_manager.py init-graph
 # → {"falkordb": "OK", "sqlite": "OK", "indices_created": 33, "agents_registered": 5}
 ```
 
 **register-agent** — Register a new agent or update an existing one.
+
 ```bash
 python scripts/state_manager.py register-agent \
   --name "outlook_triage" \
@@ -78,6 +81,7 @@ python scripts/state_manager.py register-agent \
 ### Contact & Company Management
 
 **upsert-contact** — Create or update a contact. Dedup priority: email > linkedin_url > name+company_name.
+
 ```bash
 python scripts/state_manager.py upsert-contact \
   --name "Jane Smith" \
@@ -97,6 +101,7 @@ python scripts/state_manager.py upsert-contact \
 ```
 
 **upsert-company** — Create or update a company (MERGE by name).
+
 ```bash
 python scripts/state_manager.py upsert-company \
   --name "Example Bank" \
@@ -108,6 +113,7 @@ python scripts/state_manager.py upsert-company \
 ```
 
 **upsert-deal** — Sync a HubSpot deal (MERGE by hubspot_deal_id). Creates BELONGS_TO company.
+
 ```bash
 python scripts/state_manager.py upsert-deal \
   --hubspot-deal-id "999" \
@@ -125,6 +131,7 @@ python scripts/state_manager.py upsert-deal \
 ```
 
 **check-contact** — Pre-draft dedup check. Returns `CLEAR`, `CAUTION` (contacted <3 days ago), or `DO_NOT_CONTACT`.
+
 ```bash
 python scripts/state_manager.py check-contact \
   --email "jane@examplebank.com" \
@@ -135,6 +142,7 @@ python scripts/state_manager.py check-contact \
 ### Interaction Logging
 
 **log-interaction** — Log an interaction with SHA256 idempotency protection.
+
 ```bash
 python scripts/state_manager.py log-interaction \
   --contact-name "Jane Smith" \
@@ -155,6 +163,7 @@ python scripts/state_manager.py log-interaction \
 ### Follow-Up Management
 
 **create-follow-up** — Create a follow-up reminder linked to a contact and optionally an interaction.
+
 ```bash
 python scripts/state_manager.py create-follow-up \
   --contact-name "Jane Smith" \
@@ -168,11 +177,13 @@ python scripts/state_manager.py create-follow-up \
 ```
 
 **complete-follow-up** — Mark a follow-up as completed.
+
 ```bash
 python scripts/state_manager.py complete-follow-up --id 7
 ```
 
 **list-followups** — List follow-ups by status (default: pending). Overdue items are flagged.
+
 ```bash
 python scripts/state_manager.py list-followups --status "pending" --limit 30
 ```
@@ -180,6 +191,7 @@ python scripts/state_manager.py list-followups --status "pending" --limit 30
 ### Session Management
 
 **log-session** — Log a session summary (INSERT OR REPLACE by session_id).
+
 ```bash
 python scripts/state_manager.py log-session \
   --session-id "session_20260309_outlook_bd" \
@@ -194,6 +206,7 @@ python scripts/state_manager.py log-session \
 ```
 
 **pre-session-check** — Comprehensive state dump: recently contacted, pending/overdue follow-ups, DNC list, unread agent messages, pending LinkedIn connections.
+
 ```bash
 python scripts/state_manager.py pre-session-check --agent "outlook_bd"
 ```
@@ -201,6 +214,7 @@ python scripts/state_manager.py pre-session-check --agent "outlook_bd"
 ### Agent Messaging
 
 **post-message** — Send an inter-agent message.
+
 ```bash
 python scripts/state_manager.py post-message \
   --from-agent "outlook_bd" \
@@ -210,6 +224,7 @@ python scripts/state_manager.py post-message \
 ```
 
 **get-messages** — Read unread messages addressed to an agent. Use `--mark-read` to mark them as read.
+
 ```bash
 python scripts/state_manager.py get-messages --agent "linkedin_bd" --mark-read
 ```
@@ -217,6 +232,7 @@ python scripts/state_manager.py get-messages --agent "linkedin_bd" --mark-read
 ### Memory System
 
 **remember** — Store a learning or observation for future recall.
+
 ```bash
 python scripts/state_manager.py remember \
   --key "jane_smith_prefers_whatsapp" \
@@ -230,12 +246,14 @@ python scripts/state_manager.py remember \
 ```
 
 **recall** — Query memories by agent, contact, company, tags, or keyword. Sorted by importance (critical > high > normal) then recency.
+
 ```bash
 python scripts/state_manager.py recall --agent "outlook_bd" --contact "Jane Smith" --limit 10
 python scripts/state_manager.py recall --tags "communication_preference" --keyword "WhatsApp"
 ```
 
 **forget** — Mark a memory as expired (soft delete).
+
 ```bash
 python scripts/state_manager.py forget --id 15
 ```
@@ -243,6 +261,7 @@ python scripts/state_manager.py forget --id 15
 ### Knowledge System
 
 **seed-knowledge** — Import markdown files from a directory into Knowledge nodes. Large files (>5K chars) are split by H2 headings.
+
 ```bash
 python scripts/state_manager.py seed-knowledge \
   --source "shared_references" \
@@ -251,6 +270,7 @@ python scripts/state_manager.py seed-knowledge \
 ```
 
 **query-knowledge** — Search Knowledge nodes by category, subcategory, tags, or keyword.
+
 ```bash
 python scripts/state_manager.py query-knowledge --category "shared_references" --keyword "persona"
 python scripts/state_manager.py query-knowledge --tags "compliance,outreach" --limit 5
@@ -259,11 +279,13 @@ python scripts/state_manager.py query-knowledge --tags "compliance,outreach" --l
 ### LinkedIn Connection Tracking
 
 **check-pending-connections** — List connection requests sent >N days ago still pending.
+
 ```bash
 python scripts/state_manager.py check-pending-connections --days 5
 ```
 
 **update-connection-status** — Update a contact's LinkedIn connection status.
+
 ```bash
 python scripts/state_manager.py update-connection-status \
   --linkedin-url "https://linkedin.com/in/janesmith" \
@@ -274,27 +296,32 @@ python scripts/state_manager.py update-connection-status \
 ### Maintenance & Reporting
 
 **archive-old** — Archive interactions and sessions older than N days (default 90). FalkorDB uses chunked 500/batch updates.
+
 ```bash
 python scripts/state_manager.py archive-old --days 90
 ```
 
 **graph-stats** — Return node/edge counts, timestamps, storage health, sync queue status.
+
 ```bash
 python scripts/state_manager.py graph-stats
 ```
 
 **sync-backup** — Replay pending sync_queue items to FalkorDB (used after FalkorDB downtime recovery).
+
 ```bash
 python scripts/state_manager.py sync-backup
 ```
 
 **generate-report** — Produce BD activity summary for daily or weekly period.
+
 ```bash
 python scripts/state_manager.py generate-report --period "daily" --output "json"
 # Output options: stdout (default), json (writes to /tmp/thegent-state/report.json), telegram
 ```
 
 **generate-dnc-list** — Export DNC contacts to /tmp/thegent-state/dnc-list.json for sub-agent consumption.
+
 ```bash
 python scripts/state_manager.py generate-dnc-list --channel "email"
 # Channel options: email, linkedin, all (default)

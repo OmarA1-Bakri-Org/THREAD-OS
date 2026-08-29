@@ -1,13 +1,13 @@
 # Runtime phase 0.5 baseline revalidation — 2026-04-22
 
 Worktree
-- path: `/mnt/c/Users/albak/xdev/thredOS-worktrees/runtime-phase0-baseline-r1`
+- path: `repository worktree (historical verification checkout)`
 - branch: `feat/runtime-phase0-baseline-r1`
 - head: `020e1b0c4bd091cf9a69c7c64739b5049b919982`
 
 Source docs read before rerun
-- `/home/omar/.hermes/plans/2026-04-22_091759-lets-finish-the-runtime-set-out-the-plan.md`
-- `/home/omar/.hermes/plans/audit-closure-checklist-2026-04-22.md`
+- `.hermes/plans/2026-04-22_091759-lets-finish-the-runtime-set-out-the-plan.md`
+- `.hermes/plans/audit-closure-checklist-2026-04-22.md`
 
 Exact baseline bundle rerun
 1. `bun test lib/seqctl/commands/run.test.ts`

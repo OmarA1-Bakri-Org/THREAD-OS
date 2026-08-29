@@ -1,5 +1,4 @@
 import { mkdir, readFile, writeFile } from 'fs/promises'
-import { isAbsolute, resolve } from 'path'
 import type { Sequence } from '../sequence/schema'
 import { resolvePathWithinBase } from './path-safety'
 
@@ -174,19 +173,27 @@ function validateConditionRuntimeValue(context: RuntimeContext, path: string): v
 
   if (path === 'icp_config.sources' || path === 'icp_config.sources.length') {
     assertStringArrayRuntimeValue(getNestedRuntimeValue(context, 'icp_config.sources'), 'icp_config.sources')
+    return
+  }
+
+  if (path.endsWith('.length')) {
+    const parentPath = path.slice(0, -'.length'.length)
+    const parentValue = getNestedRuntimeValue(context, parentPath)
+    assertRuntimeValue(
+      Array.isArray(parentValue) || typeof parentValue === 'string',
+      `Runtime context value '${parentPath}' must be an array or string when .length is used`,
+    )
   }
 }
 
 function normalizeApolloArtifactDir(basePath: string, runtimeContext: RuntimeContext): string | null {
   const configured = readOptionalNonEmptyStringRuntimeValue(runtimeContext, 'apollo_artifact_dir')
   if (!configured) return null
-  return isAbsolute(configured)
-    ? resolve(configured)
-    : resolvePathWithinBase(basePath, configured, 'apollo artifact directory')
+  return resolvePathWithinBase(basePath, configured, 'apollo artifact directory')
 }
 
 function resolveApolloArtifactFile(artifactDir: string, fileName: string): string {
-  return resolve(artifactDir, fileName)
+  return resolvePathWithinBase(artifactDir, fileName, 'apollo artifact file')
 }
 
 async function readOptionalArtifactObject(path: string): Promise<Record<string, unknown> | null> {
@@ -391,37 +398,75 @@ function parseLiteral(rawLiteral: string): unknown {
   return undefined
 }
 
-export function evaluateRuntimeCondition(expression: string, context: RuntimeContext): boolean {
+function parseRequiredLiteral(rawLiteral: string, expression: string): unknown {
+  const parsed = parseLiteral(rawLiteral)
+  if (parsed === undefined) throw new Error(`Unsupported condition literal in '${expression}'`)
+  return parsed
+}
+
+function evaluateAtomicRuntimeCondition(expression: string, context: RuntimeContext): boolean {
   const normalized = expression.trim()
-  if (!normalized) return true
+  const truthyPath = normalized.match(/^([A-Za-z0-9_.]+)$/)
+  if (truthyPath) return Boolean(getNestedRuntimeValue(context, truthyPath[1]))
+
+  const typeMatch = normalized.match(/^([A-Za-z0-9_.]+)\s+is\s+(array|string|number|boolean|null)$/)
+  if (typeMatch) {
+    const [, path, typeName] = typeMatch
+    const value = getNestedRuntimeValue(context, path)
+    if (typeName === 'array') return Array.isArray(value)
+    if (typeName === 'null') return value === null
+    return typeof value === typeName
+  }
 
   const containsMatch = normalized.match(/^([A-Za-z0-9_.]+)\s+contains\s+(.+)$/)
   if (containsMatch) {
     const [, path, rawExpected] = containsMatch
     validateConditionRuntimeValue(context, path)
-    const expected = parseLiteral(rawExpected)
+    const expected = parseRequiredLiteral(rawExpected, normalized)
     const value = getNestedRuntimeValue(context, path)
-    if (typeof expected !== 'string') return false
     if (Array.isArray(value)) return value.includes(expected)
-    if (typeof value === 'string') return value.includes(expected)
+    if (typeof value === 'string' && typeof expected === 'string') return value.includes(expected)
     return false
   }
 
-  const eqMatch = normalized.match(/^([A-Za-z0-9_.]+)\s*==\s*(.+)$/)
-  if (eqMatch) {
-    const [, path, rawExpected] = eqMatch
+  const comparisonMatch = normalized.match(/^([A-Za-z0-9_.]+)\s*(==|!=|>=|<=|>|<)\s*(.+)$/)
+  if (comparisonMatch) {
+    const [, path, operator, rawExpected] = comparisonMatch
     validateConditionRuntimeValue(context, path)
-    return getNestedRuntimeValue(context, path) === parseLiteral(rawExpected)
+    const actual = getNestedRuntimeValue(context, path)
+    const expected = parseRequiredLiteral(rawExpected, normalized)
+    if (operator === '==') return actual === expected
+    if (operator === '!=') return actual !== expected
+    if (typeof actual !== 'number' || typeof expected !== 'number') {
+      throw new Error(`Numeric condition operator '${operator}' requires numeric operands in '${normalized}'`)
+    }
+    if (operator === '>') return actual > expected
+    if (operator === '<') return actual < expected
+    if (operator === '>=') return actual >= expected
+    return actual <= expected
   }
 
-  return false
+  throw new Error(`Unsupported runtime condition expression: '${normalized}'`)
+}
+
+export function evaluateRuntimeCondition(expression: string, context: RuntimeContext): boolean {
+  const normalized = expression.trim()
+  if (!normalized) return true
+  if (/\s+OR\s+/.test(normalized)) {
+    throw new Error(`Unsupported runtime condition expression: '${normalized}'`)
+  }
+  const clauses = normalized.split(/\s+AND\s+/)
+  if (clauses.some(clause => clause.trim().length === 0)) {
+    throw new Error(`Unsupported runtime condition expression: '${normalized}'`)
+  }
+  return clauses.every(clause => evaluateAtomicRuntimeCondition(clause, context))
 }
 
 export async function evaluateSequenceCondition(basePath: string, sequence: Sequence, expression?: string | null): Promise<boolean> {
   if (typeof expression !== 'string') return true
   const normalized = expression.trim()
   if (!normalized) return true
-
-  const context = buildConditionContext(sequence, await readRuntimeContext(basePath))
-  return evaluateRuntimeCondition(normalized, context)
+  const rawContext = await readRuntimeContext(basePath)
+  const hydratedContext = await hydrateApolloApprovalRuntimeContext(basePath, rawContext)
+  return evaluateRuntimeCondition(normalized, buildConditionContext(sequence, hydratedContext))
 }

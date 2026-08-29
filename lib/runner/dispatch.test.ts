@@ -129,7 +129,7 @@ describe('dispatch', () => {
     })
 
     expect(config.args).toBeDefined()
-    expect(config.args![0]).toContain('.threados/tmp-prompts/threados-prompt-test-')
+    expect(config.args![0].replace(/\\/g, '/')).toContain('.threados/tmp-prompts/threados-prompt-test-')
     expect(config.args![0].startsWith(cwd)).toBe(true)
     await expect(readFile(config.args![0], 'utf-8')).resolves.toContain('echo "test"')
   })

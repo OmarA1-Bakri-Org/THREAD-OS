@@ -101,4 +101,47 @@ describe('runtime plan persistence', () => {
     })
     expect(updated.updated_at).not.toBe(plan.updated_at)
   })
+
+  test('does not duplicate the same plan revision on retry', async () => {
+    await initRuntimePlan(basePath, {
+      mission_id: 'seq-idempotent',
+      goal: 'Idempotent revisions',
+      candidate_strategies: ['a', 'b'],
+      selected_strategy: 'a',
+    })
+    const revision = {
+      revision_id: 'rev-same',
+      ts: '2026-04-22T00:10:00.000Z',
+      from_strategy: 'a',
+      to_strategy: 'b',
+      reason: 'retry',
+      approval_required: false,
+      approved: true,
+    }
+    await appendPlanRevision(basePath, revision)
+    await appendPlanRevision(basePath, revision)
+    expect((await readRuntimePlan(basePath))?.revisions.map(item => item.revision_id)).toEqual(['rev-same'])
+  })
+
+  test('preserves concurrent plan revisions without lost updates', async () => {
+    await initRuntimePlan(basePath, {
+      mission_id: 'seq-concurrent',
+      goal: 'Concurrent revisions',
+      candidate_strategies: ['a', 'b', 'c'],
+      selected_strategy: 'a',
+    })
+    await Promise.all(Array.from({ length: 8 }, (_, index) => appendPlanRevision(basePath, {
+      revision_id: `rev-${index}`,
+      ts: `2026-04-22T00:${10 + index}:00.000Z`,
+      from_strategy: 'a',
+      to_strategy: index % 2 === 0 ? 'b' : 'c',
+      reason: `parallel-${index}`,
+      approval_required: false,
+      approved: true,
+    })))
+    const stored = await readRuntimePlan(basePath)
+    expect(stored?.revisions).toHaveLength(8)
+    expect(new Set(stored?.revisions.map(item => item.revision_id)).size).toBe(8)
+  })
+
 })

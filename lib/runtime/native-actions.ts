@@ -1,5 +1,5 @@
 import { access, mkdir, writeFile } from 'fs/promises'
-import { basename, dirname, isAbsolute, join } from 'path'
+import { basename, dirname } from 'path'
 import {
   buildConditionContext,
   evaluateRuntimeCondition,
@@ -82,16 +82,18 @@ function resolveFailurePolicy(action: Record<string, unknown>): string {
   return typeof action.on_failure === 'string' ? action.on_failure : 'abort_step'
 }
 
-async function handleActionFailure(action: Record<string, unknown>, message: string): Promise<void> {
+async function handleActionFailure(action: Record<string, unknown>, message: string, cause?: unknown): Promise<void> {
   const policy = resolveFailurePolicy(action)
   if (policy === 'warn' || policy === 'skip') {
     console.warn(message)
     return
   }
   if (policy === 'abort_workflow') {
-    throw new AbortWorkflowError(message)
+    const error = new AbortWorkflowError(message)
+    if (cause !== undefined) error.cause = cause
+    throw error
   }
-  throw new Error(message)
+  throw new Error(message, cause === undefined ? undefined : { cause })
 }
 
 async function storeActionOutput(basePath: string, action: Record<string, unknown>, value: unknown): Promise<void> {
@@ -121,6 +123,19 @@ export async function renderRuntimeContextTemplate(
   })
 }
 
+async function renderRuntimeValue(basePath: string, value: unknown, runtimeContext: RuntimeContext): Promise<unknown> {
+  if (typeof value === 'string') return renderRuntimeContextTemplate(basePath, value, runtimeContext)
+  if (Array.isArray(value)) return Promise.all(value.map(item => renderRuntimeValue(basePath, item, runtimeContext)))
+  if (value && typeof value === 'object') {
+    const entries = await Promise.all(Object.entries(value as Record<string, unknown>).map(async ([key, entryValue]) => [
+      key,
+      await renderRuntimeValue(basePath, entryValue, runtimeContext),
+    ] as const))
+    return Object.fromEntries(entries)
+  }
+  return value
+}
+
 async function executeCliAction(
   basePath: string,
   step: Step,
@@ -129,7 +144,8 @@ async function executeCliAction(
   action: Record<string, unknown>,
 ): Promise<void> {
   const config = (action.config ?? {}) as Record<string, unknown>
-  const command = typeof config.command === 'string' ? config.command.trim() : ''
+  const commandTemplate = typeof config.command === 'string' ? config.command : ''
+  const command = commandTemplate ? (await renderRuntimeContextTemplate(basePath, commandTemplate)).trim() : ''
   const actionId = resolveActionId(action, 'cli')
 
   if (!command) {
@@ -140,7 +156,7 @@ async function executeCliAction(
     stepId: `${step.id}::${actionId}`,
     runId,
     command: 'sh',
-    args: ['-lc', command],
+    args: ['-c', command],
     cwd: step.cwd || basePath,
     timeout: resolveActionTimeout(action, step),
   })
@@ -153,7 +169,15 @@ async function executeCliAction(
     status: normalizeResultStatus(result),
   }
 
-  await storeActionOutput(basePath, action, output)
+  let persistedOutput: unknown = output
+  if (typeof action.output_key === 'string' && action.output_key.length > 0 && result.stdout.trim()) {
+    try {
+      persistedOutput = JSON.parse(result.stdout)
+    } catch {
+      persistedOutput = result.stdout.trim()
+    }
+  }
+  await storeActionOutput(basePath, action, persistedOutput)
 
   if (result.exitCode !== 0) {
     await handleActionFailure(action, `CLI action '${actionId}' failed with exit code ${result.exitCode}: ${result.stderr.trim() || result.stdout.trim() || command}`)
@@ -295,6 +319,8 @@ async function executeComposioCompatibleAction(
   const actionArgs = input && typeof input === 'object' && !Array.isArray(input)
     ? input as Record<string, unknown>
     : {}
+  const hydratedContext = await hydrateApolloApprovalRuntimeContext(basePath, await readRuntimeContext(basePath))
+  const renderedArguments = await renderRuntimeValue(basePath, actionArgs, hydratedContext) as Record<string, unknown>
   const actionId = resolveActionId(action, toolSlug || 'composio_tool')
 
   if (!toolSlug) {
@@ -309,13 +335,13 @@ async function executeComposioCompatibleAction(
 
     const result = await runComposioTool({
       toolSlug,
-      arguments: actionArgs,
+      arguments: renderedArguments,
       timeoutMs: resolveActionTimeout(action, step),
     })
 
     await storeActionOutput(basePath, action, result ?? null)
   } catch (error) {
-    await handleActionFailure(action, `Composio action '${actionId}' failed: ${error instanceof Error ? error.message : String(error)}`)
+    await handleActionFailure(action, `Composio action '${actionId}' failed: ${error instanceof Error ? error.message : String(error)}`, error)
   }
 }
 
@@ -344,7 +370,10 @@ async function collectExecutedActions(
   for (const action of actions) {
     if (action.type === 'conditional') {
       const config = (action.config ?? {}) as Record<string, unknown>
-      const branchContext = buildConditionContext(sequence, await readRuntimeContext(basePath))
+      const branchContext = buildConditionContext(
+        sequence,
+        await hydrateApolloApprovalRuntimeContext(basePath, await readRuntimeContext(basePath)),
+      )
       const branchActions = evaluateRuntimeCondition(String(config.condition ?? ''), branchContext)
         ? config.if_true
         : config.if_false

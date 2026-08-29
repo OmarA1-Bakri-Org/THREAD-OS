@@ -6,6 +6,7 @@ import type { Step } from '../sequence/schema'
 interface PreflightProbeOptions {
   home?: string
   which?: (binary: string) => string | null | undefined
+  hasComposioExecutor?: boolean
 }
 
 function runtimePreflightError(message: string): Error {
@@ -111,7 +112,7 @@ export async function preflightStepEnvironment(
   await preflightDispatchEnvironment(step.cwd || basePath)
 
   const actionTypes = collectActionTypes(step.actions)
-  if (actionTypes.has('composio_tool')) {
+  if (actionTypes.has('composio_tool') && !options.hasComposioExecutor) {
     await ensureComposioPreflight(options)
   }
 }

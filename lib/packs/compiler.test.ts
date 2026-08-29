@@ -87,7 +87,7 @@ const makeManifest = (overrides: Partial<PackManifest> = {}): PackManifest => ({
     triggers: ['empty_artifact', 'sparse_results'],
   },
   ...overrides,
-})
+} as PackManifest)
 
 describe('compilePack', () => {
   test('produces a valid sequence with correct name, pack_id, pack_version', () => {
@@ -101,7 +101,7 @@ describe('compilePack', () => {
     expect(result.sequence.gates).toEqual([
       {
         id: 'alpha-ready',
-        name: 'alpha-ready',
+        name: 'Alpha must succeed before beta',
         depends_on: ['alpha'],
         status: 'PENDING',
         cascade: false,
@@ -335,4 +335,28 @@ describe('compilePack', () => {
       }))
     }
   })
+
+  test('infers conditional side effects from nested branch actions', () => {
+    const manifest = makeManifest({
+      steps: [{
+        ...makeManifest().steps[0],
+        actions: [{
+          id: 'conditional-read',
+          type: 'conditional',
+          config: {
+            condition: 'first_run == true',
+            if_true: [{ id: 'read', type: 'read_file', config: { file_path: 'README.md' } }],
+            if_false: [],
+          },
+        }],
+      }],
+    })
+    expect(compilePack(manifest).sequence.steps[0].side_effect_class).toBe('read')
+  })
+
+  test('uses the gate message as the human-readable compiled gate name', () => {
+    const manifest = makeManifest({ gates: [{ id: 'review', type: 'approval', step_id: 'alpha', when: 'pre', check: 'approved', on_fail: 'abort', message: 'Human review required' }] })
+    expect((compilePack(manifest).sequence as Sequence).gates[0].name).toBe('Human review required')
+  })
+
 })

@@ -1,4 +1,4 @@
-import { mkdir, readFile } from 'fs/promises'
+import { mkdir, open, readFile, unlink } from 'fs/promises'
 import { join } from 'path'
 import { writeFileAtomic } from '../fs/atomic'
 import { z } from 'zod'
@@ -70,16 +70,38 @@ export async function initRuntimePlan(basePath: string, input: {
   return plan
 }
 
+async function withRuntimePlanLock<T>(basePath: string, work: () => Promise<T>): Promise<T> {
+  await mkdir(join(basePath, '.threados', 'state'), { recursive: true })
+  const lockPath = `${getRuntimePlanPath(basePath)}.lock`
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    try {
+      const handle = await open(lockPath, 'wx')
+      try {
+        return await work()
+      } finally {
+        await handle.close()
+        await unlink(lockPath).catch(() => {})
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+      await new Promise(resolveDelay => setTimeout(resolveDelay, 10))
+    }
+  }
+  throw new Error('Timed out acquiring runtime plan lock')
+}
+
 export async function appendPlanRevision(basePath: string, revision: StrategyRevision): Promise<RuntimePlan> {
-  const existing = await readRuntimePlan(basePath)
-  if (!existing) {
-    throw new Error('Cannot append plan revision before runtime plan initialization')
-  }
-  const updated: RuntimePlan = {
-    ...existing,
-    revisions: [...existing.revisions, StrategyRevisionSchema.parse(revision)],
-    updated_at: new Date().toISOString(),
-  }
-  await writeRuntimePlan(basePath, updated)
-  return updated
+  const parsedRevision = StrategyRevisionSchema.parse(revision)
+  return withRuntimePlanLock(basePath, async () => {
+    const existing = await readRuntimePlan(basePath)
+    if (!existing) throw new Error('Cannot append plan revision before runtime plan initialization')
+    if (existing.revisions.some(candidate => candidate.revision_id === parsedRevision.revision_id)) return existing
+    const updated: RuntimePlan = {
+      ...existing,
+      revisions: [...existing.revisions, parsedRevision],
+      updated_at: new Date().toISOString(),
+    }
+    await writeRuntimePlan(basePath, updated)
+    return updated
+  })
 }
