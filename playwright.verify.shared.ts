@@ -1,4 +1,5 @@
 import { defineConfig, devices, type PlaywrightTestConfig } from '@playwright/test'
+import { delimiter, dirname } from 'path'
 
 type VerifyMode = 'local' | 'ci' | 'release-live'
 
@@ -13,6 +14,12 @@ const BASE_URL = process.env.PLAYWRIGHT_BASE_URL ?? `http://localhost:${PORT}`
 const ARTIFACTS_DIR = process.env.PLAYWRIGHT_ARTIFACTS_DIR ?? 'test-results/verify/manual'
 const REPORT_PATH = process.env.PLAYWRIGHT_JSON_REPORT_PATH ?? `${ARTIFACTS_DIR}/playwright-report.json`
 const STORAGE_STATE_PATH = process.env.PLAYWRIGHT_STORAGE_STATE_PATH ?? `${ARTIFACTS_DIR}/auth-storage-state.json`
+
+function resolveBunBinDir(): string | null {
+  if (process.env.BUN_BIN) return dirname(process.env.BUN_BIN)
+  const home = process.env.HOME ?? process.env.USERPROFILE
+  return home ? `${home}/.bun/bin` : null
+}
 
 export function createVerifyConfig({
   mode,
@@ -56,9 +63,9 @@ export function createVerifyConfig({
         cwd: process.cwd(),
         env: {
           ...process.env,
-          PATH: [`${process.env.HOME}/.bun/bin`, process.env.PATH]
+          PATH: [resolveBunBinDir(), process.env.PATH]
             .filter(Boolean)
-            .join(':'),
+            .join(delimiter),
           SystemRoot: process.env.SystemRoot ?? 'C:\\Windows',
         },
         url: `${BASE_URL}/app`,

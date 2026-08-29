@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { cpSync, existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'fs'
-import { dirname, join, resolve } from 'path'
+import { delimiter, dirname, join, resolve } from 'path'
 import { spawnSync } from 'child_process'
 import { tmpdir } from 'os'
 import { createServer } from 'net'
@@ -222,22 +222,40 @@ async function resolvePlaywrightPort(modeName, explicitPort) {
   return { server: fallbackClaim.server, port: String(fallbackClaim.port) }
 }
 
+async function releaseClaimedPort(server) {
+  if (!server) return
+  await new Promise((resolveClose, rejectClose) => {
+    server.close(error => {
+      if (error) rejectClose(error)
+      else resolveClose()
+    })
+  })
+}
+
 function findBunPath() {
   const explicit = process.env.BUN_BIN
   if (explicit && existsSync(explicit)) {
     return explicit
   }
 
-  const home = process.env.HOME
-  const bundled = home ? join(home, '.bun', 'bin', 'bun') : null
+  const bunName = process.platform === 'win32' ? 'bun.exe' : 'bun'
+  const home = process.env.HOME ?? process.env.USERPROFILE
+  const bundled = home ? join(home, '.bun', 'bin', bunName) : null
   if (bundled && existsSync(bundled)) {
     return bundled
   }
 
-  const fromPath = spawnSync('bash', ['-lc', 'command -v bun'], { encoding: 'utf8' })
-  if (fromPath.status === 0) {
-    const resolvedPath = fromPath.stdout.trim()
-    if (resolvedPath) return resolvedPath
+  for (const entry of (process.env.PATH ?? '').split(delimiter).filter(Boolean)) {
+    const candidate = join(entry, bunName)
+    if (existsSync(candidate)) return candidate
+  }
+
+  if (process.platform !== 'win32') {
+    const fromPath = spawnSync('bash', ['-lc', 'command -v bun'], { encoding: 'utf8' })
+    if (fromPath.status === 0) {
+      const resolvedPath = fromPath.stdout.trim()
+      if (resolvedPath) return resolvedPath
+    }
   }
 
   return null
@@ -498,7 +516,7 @@ try {
   mkdirSync(artifactsDir, { recursive: true })
 
   const browserLibraries = ensureBrowserLibraries()
-  env.PATH = [dirname(bunPath), env.PATH].filter(Boolean).join(':')
+  env.PATH = [dirname(bunPath), env.PATH].filter(Boolean).join(delimiter)
   if (browserLibraries.ldLibraryPath) {
     env.LD_LIBRARY_PATH = [browserLibraries.ldLibraryPath, env.LD_LIBRARY_PATH].filter(Boolean).join(':')
   }
@@ -546,6 +564,8 @@ try {
     console.log(`[verify:${mode}] workspace: ${workspacePath}`)
   }
 
+  await releaseClaimedPort(claimedServer)
+
   const result = spawnSync(process.execPath, [
     'node_modules/playwright/cli.js',
     'test',
@@ -559,9 +579,6 @@ try {
 
   writeManifest(env, artifactsDir, mode, workspacePath, result.status ?? 1)
 
-  if (claimedServer) {
-    claimedServer.close()
-  }
 
   if (result.error) {
     throw result.error
